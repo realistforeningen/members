@@ -1,20 +1,28 @@
 #include <ncurses.h>
 #include <form.h>
+#include <panel.h>
 #include <string.h>
 #include <stdlib.h>
+#include <locale.h>
 
 WINDOW *newwin(int height, int width, int starty, int startx);
 void destroy_win(WINDOW *local_win);
-void menu(WINDOW *w);
-void printmenu(WINDOW *menuwin, char **menu_s, int active, int chosen);
-void home(WINDOW *w);
-void reg(WINDOW *w);
-void members(WINDOW *w);
-void stats(WINDOW *w);
+void menu();
+void printmenu(char **menu_s, int active, int chosen);
+void home();
+bool reg();
+void members();
+void stats();
 
+const int PRICE = 30;
+const char *RF = "REALISTFORENINGEN";
+WINDOW *main_win;
+WINDOW *menu_win;
+PANEL *panels[3];
 
 int main() {
-  WINDOW *win;
+  setlocale(LC_ALL, "");
+
   initscr();
   raw();
   keypad(stdscr, true);
@@ -29,27 +37,27 @@ int main() {
   int y = 2;
   int x = 0;
 
-  win = newwin(rows - 2, cols, y, x);
-  keypad(win, true);
+  main_win = newwin(rows - 2, cols, y, x);
+  keypad(main_win, true);
   refresh();
-  box(win, 0, 0);
-  wrefresh(win);
+  box(main_win, 0, 0);
+  wrefresh(main_win);
 
-  char *RF = "REALISTFORENINGEN";
   mvprintw(0, (COLS - strlen(RF)) / 2, RF);
   mvprintw(1, 2, "Menu");
-  home(win);
-  menu(win);
+  home();
+  menu();
 
   endwin();
   return 0;
 }
 
-void menu(WINDOW *w) {
-  int active = 0, chosen = 0, i, ch;
+void menu() {
+  int active = 0, chosen = 0, gomenu, i, ch;
   char **menu_s;
-  WINDOW *menuwin;
   const int MENU_END = 4, MENU_LEN = 5;
+
+  panels[0] = new_panel(main_win);
 
   menu_s = malloc(sizeof(char*) * MENU_LEN);
   for (i = 0; i < MENU_LEN; i++)
@@ -60,12 +68,15 @@ void menu(WINDOW *w) {
   menu_s[3] = "Stats";
   menu_s[4] = "Exit";
 
-  menuwin = newwin(MENU_LEN + 2, 12, 2, 0);
-  keypad(menuwin, true);
-  box(menuwin, 0, 0);
+  menu_win = newwin(MENU_LEN + 2, 12, 2, 0);
+  panels[1] = new_panel(menu_win);
+  update_panels();
+  doupdate();
+  keypad(menu_win, true);
+  box(menu_win, 0, 0);
   
   for (;;) {
-    printmenu(menuwin, menu_s, active, chosen);
+    printmenu(menu_s, active, chosen);
     switch (ch = getch()) {
     case 27:
       return;
@@ -77,28 +88,28 @@ void menu(WINDOW *w) {
       break;
     case 10:
       chosen = active;
-      printmenu(menuwin, menu_s, active, chosen);
       switch (active) {
       case 0:
-        home(w);
+        home();
         break;
       case 1:
-        reg(w);
-        break;
+        hide_panel(panels[1]);
+        update_panels();
+        doupdate();
+        if (!reg(panels))
+          break;
       case 2:
-        members(w);
+        members(panels);
         break;
       case 3:
-        stats(w);
+        stats();
         break;
       case 4:
         return;
       }
-      break;
-    default:
-      mvprintw(23, 3, "Character pressed = %3d/%c", ch, ch);
-      clrtoeol();
-      refresh();
+      show_panel(panels[1]);
+      update_panels();
+      doupdate();
     }
   }
   for (i = 0; i < MENU_LEN; i++)
@@ -106,33 +117,34 @@ void menu(WINDOW *w) {
   free(menu_s);
 }
 
-void printmenu(WINDOW *mw, char **menu_s, int active, int chosen) {
+void printmenu(char **menu_s, int active, int chosen) {
   int y = 1, x = 1, i;
-  box(mw, 0, 0);
+  box(menu_win, 0, 0);
   for (i = 0; i < 5; i++) {
     if (i == chosen)
-      wattron(mw, A_BOLD);
+      wattron(menu_win, A_BOLD);
     if (i == active) {
-      wattron(mw, A_REVERSE);
-      mvwprintw(mw, y++, x, menu_s[i]);
-      wattroff(mw, A_REVERSE);
+      wattron(menu_win, A_REVERSE);
+      mvwprintw(menu_win, y++, x, menu_s[i]);
+      wattroff(menu_win, A_REVERSE);
     } else {
-      mvwprintw(mw, y++, x, menu_s[i]);
+      mvwprintw(menu_win, y++, x, menu_s[i]);
     }
     if (i == chosen)
-      wattroff(mw, A_BOLD);
+      wattroff(menu_win, A_BOLD);
   }
-  wrefresh(mw);
+  wrefresh(menu_win);
 }
 
-void home(WINDOW *w) {
+void home() {
+  // TODO dancing bear
   int x, y, ch;
-  getmaxyx(w, y, x);
+  getmaxyx(main_win, y, x);
   char *s = "Dette er Realistforeningens medlemsliste.";
-  werase(w);
-  box(w, 0, 0);
-  mvwprintw(w, y / 2, (x - strlen(s)) / 2, s);
-  wrefresh(w);
+  werase(main_win);
+  box(main_win, 0, 0);
+  mvwprintw(main_win, y / 2, (x - strlen(s)) / 2, s);
+  wrefresh(main_win);
   for (;;) {
     switch (ch = getch()) {
     case 27:
@@ -141,34 +153,40 @@ void home(WINDOW *w) {
   }
 }
 
-void reg(WINDOW *w) {
+bool reg() {
   int x, y, ch, h = 15, wi = 50, i;
   FIELD *fields[4];
   FORM *rf_form;
   WINDOW *formw, *dwin;
-  getmaxyx(w, y, x);
+  char *f_name, *l_name;
+  unsigned int uid;
+  getmaxyx(main_win, y, x);
+
+  wrefresh(main_win);
 
   for (i = 0; i < 3; i++) {
-    fields[i] = new_field(1, 25, 2 + i * 2, 20, 0, 0);    
+    fields[i] = new_field(1, 25, 1 + i * 2, 12, 0, 0);    
     set_field_back(fields[i], A_UNDERLINE);
   }
   fields[3] = NULL;
 
   rf_form = new_form(fields);
   scale_form(rf_form, &h, &wi);
-  formw = newwin(h + 4, wi + 10, (y - h) / 2, (x - wi) / 2);
+  formw = newwin(h + 3, wi + 4, (y - h) / 2, (x - wi) / 2);
+  panels[2] = new_panel(formw);
+  update_panels();
+  doupdate();
   keypad(formw, true);
   set_form_win(rf_form, formw);
-  dwin = derwin(formw, h + 2, wi + 8, 1, 1);
+  dwin = derwin(formw, h, wi + 2, 1, 1);
   set_form_sub(rf_form, dwin);
   box(formw, 0, 0);
   post_form(rf_form);
-  mvwprintw(dwin, 2, 4, "  Fornavn:");
-  mvwprintw(dwin, 4, 4, "Etternavn:");
-  mvwprintw(dwin, 6, 4, "       ID:");
+  mvwprintw(dwin, 1, 1, "  Fornavn:");
+  mvwprintw(dwin, 3, 1, "Etternavn:");
+  mvwprintw(dwin, 5, 1, "       ID:");
   wrefresh(formw);
 
-  int afi = 0;
   curs_set(1);
   for (;;) {
     switch (ch = getch()) {
@@ -191,13 +209,23 @@ void reg(WINDOW *w) {
     case KEY_BACKSPACE:
       form_driver(rf_form, REQ_DEL_PREV);
       break;
+    case 10:
+      f_name = field_buffer(fields[0], 0);
+      l_name = field_buffer(fields[1], 0);
+      uid = strtoul(field_buffer(fields[2], 0), NULL, 10);
+      // TODO save data
     case 27:
+      hide_panel(panels[2]);
+      if (ch == 27)
+        show_panel(panels[1]);
+      update_panels();
+      doupdate();
       unpost_form(rf_form);
       free_form(rf_form);
       curs_set(0);
       for (i = 0; i < 3; i++)
         free_field(fields[i]);
-      return;
+      return ch == 10;
     default:
       form_driver(rf_form, ch);
       break;
@@ -206,18 +234,33 @@ void reg(WINDOW *w) {
   }
 }
 
-void members(WINDOW *w) {
-  return;
+void members() {
+  hide_panel(panels[1]);
+  update_panels();
+  doupdate();
+  int x, y, ch;
+  getmaxyx(main_win, y, x);
+  char *s = "Her kommer medlemslista.";
+  werase(main_win);
+  box(main_win, 0, 0);
+  mvwprintw(main_win, y / 2, (x - strlen(s)) / 2, s);
+  wrefresh(main_win);
+  for (;;) {
+    switch (ch = getch()) {
+    case 27:
+      return;
+    }
+  }
 }
 
-void stats(WINDOW *w) {
+void stats() {
   int x, y, ch;
-  getmaxyx(w, y, x);
+  getmaxyx(main_win, y, x);
   char *s = "Her kommer statistikk.";
-  werase(w);
-  box(w, 0, 0);
-  mvwprintw(w, y / 2, (x - strlen(s)) / 2, s);
-  wrefresh(w);
+  werase(main_win);
+  box(main_win, 0, 0);
+  mvwprintw(main_win, y / 2, (x - strlen(s)) / 2, s);
+  wrefresh(main_win);
   for (;;) {
     switch (ch = getch()) {
     case 27:
