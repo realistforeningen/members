@@ -1,4 +1,4 @@
-Compile:
-gcc rf.c -lncursesw -lpanelw -lformw
+Compile:  
+`gcc rf.c -lncursesw -lpanelw -lformw`
 
-Depends on libncursesw.
+Depends on `libncursesw`.

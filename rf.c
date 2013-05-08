@@ -1,32 +1,24 @@
+#include <locale.h>
+#include <string.h>
+#include <stdlib.h>
+#include <time.h>
 #include <ncurses.h>
 #include <form.h>
 #include <panel.h>
-#include <string.h>
-#include <stdlib.h>
-#include <locale.h>
-#include <time.h>
 
-WINDOW *newwin(int height, int width, int starty, int startx);
+bool reg();
+char *strstrip(char *str);
+int read_file();
 void destroy_win(WINDOW *local_win);
 void menu();
 void printmenu(char **menu_s, int active, int chosen);
 void home();
-bool reg();
 void members();
 void stats();
 void register_member(char *f_name, char *l_name);
-char *strstrip(char *str);
 void dump_to_file();
-int read_file();
 void update_status_line();
-
-const int PRICE = 30;
-const char *RF = "REALISTFORENINGEN";
-char* file_name= "members.csv";
-WINDOW *main_win;
-WINDOW *menu_win;
-PANEL *panels[3];
-int num_members, num_members_today;
+WINDOW *newwin(int height, int width, int starty, int startx);
 
 typedef struct member {
   char *first_name;
@@ -35,7 +27,15 @@ typedef struct member {
   struct member *next;
 } member;
 
+const int PRICE = 30;
+const char *RF = "REALISTFORENINGEN";
+char* file_name= "members.csv";
+int num_members, num_members_today, curr_line;
 member *first_member = NULL;
+PANEL *panels[4];
+WINDOW *main_win;
+WINDOW *menu_win;
+WINDOW *padw;
 
 int main() {
   setlocale(LC_ALL, "");
@@ -55,6 +55,7 @@ int main() {
   mvprintw(0, (COLS - strlen(RF)) / 2, RF);
   mvprintw(1, 2, "Menu");
   num_members = read_file();
+  update_status_line();
   home();
   menu();
 
@@ -63,7 +64,7 @@ int main() {
 }
 
 void menu() {
-  int active = 0, chosen = 0, gomenu, i, ch;
+  int active = 0, chosen = 0, i, ch;
   char **menu_s;
   const int MENU_END = 4, MENU_LEN = 5;
 
@@ -171,8 +172,6 @@ bool reg() {
   char *f_name, *l_name;
   getmaxyx(main_win, y, x);
 
-  wrefresh(main_win);
-
   for (i = 0; i < 2; i++) {
     fields[i] = new_field(1, 25, 1 + i * 2, 12, 0, 0);    
     set_field_back(fields[i], A_UNDERLINE);
@@ -182,7 +181,7 @@ bool reg() {
   rf_form = new_form(fields);
   scale_form(rf_form, &h, &wi);
   formw = newwin(h + 3, wi + 4, (y - h) / 2, (x - wi) / 2);
-  panels[2] = new_panel(formw);
+  panels[3] = new_panel(formw);
   update_panels();
   doupdate();
   keypad(formw, true);
@@ -193,8 +192,8 @@ bool reg() {
   post_form(rf_form);
   mvwprintw(dwin, 1, 1, "  Fornavn:");
   mvwprintw(dwin, 3, 1, "Etternavn:");
+  prefresh(padw, curr_line, 1, 3, 1, y, x-2);
   wrefresh(formw);
-
   curs_set(1);
   for (;;) {
     switch (ch = getch()) {
@@ -223,7 +222,10 @@ bool reg() {
       l_name = strstrip(field_buffer(fields[1], 0));
       register_member(f_name, l_name);
     case 27:
-      hide_panel(panels[2]);
+      hide_panel(panels[3]);
+      update_panels();
+      doupdate();
+      prefresh(padw, curr_line, 1, 3, 1, y, x-2);
       if (ch == 27)
         show_panel(panels[1]);
       update_panels();
@@ -243,25 +245,37 @@ bool reg() {
 }
 
 void members() {
-  hide_panel(panels[1]);
-  update_panels();
-  doupdate();
   int x, y, ch, i;
+  hide_panel(panels[1]);
   getmaxyx(main_win, y, x);
   werase(main_win);
   box(main_win, 0, 0);
+  padw = newpad(num_members + 2, x);
+  panels[2] = new_panel(padw);
+  update_panels();
+  doupdate();
 
   member *curr = first_member;
   for (i = 0; curr != NULL; i++) {
-    mvwprintw(main_win, 1 + i, 1, curr->first_name); // TODO use pads
-    mvwprintw(main_win, 1 + i, 2 + strlen(curr->first_name), 
+    mvwprintw(padw, i, 1, curr->first_name);
+    mvwprintw(padw, i, 2 + strlen(curr->first_name), 
               curr->last_name);
-    mvwprintw(main_win, 1 + i, x - 12, "%d", curr->timestamp);
+    mvwprintw(padw, i, x - 12, "%d", curr->timestamp);
     curr = curr->next;
   }
-  wrefresh(main_win);
+
+  curr_line = 0;
+  prefresh(padw, curr_line, 1, 3, 1, y, x-2);
   for (;;) {
     switch (ch = getch()) {
+    case KEY_DOWN:
+      if (curr_line + y <= num_members + 1)
+        prefresh(padw, ++curr_line, 1, 3, 1, y, x-2);
+      break;
+    case KEY_UP:
+      if (curr_line > 0)
+        prefresh(padw, --curr_line, 1, 3, 1, y, x-2);
+      break;
     case 27:
       return;
     }
@@ -280,8 +294,8 @@ char *strstrip(char *str) {
 
 void stats() {
   int x, y, ch;
-  getmaxyx(main_win, y, x);
   char *s = "Her kommer statistikk.";
+  getmaxyx(main_win, y, x);
   werase(main_win);
   box(main_win, 0, 0);
   mvwprintw(main_win, y / 2, (x - strlen(s)) / 2, s);
