@@ -1,3 +1,4 @@
+#define _X_OPEN_SOURCE_EXTENDED
 #include <locale.h>
 #include <string.h>
 #include <stdlib.h>
@@ -13,7 +14,8 @@ void destroy_win(WINDOW *local_win);
 void menu();
 void printmenu(char **menu_s, int active, int chosen);
 void home();
-void members();
+void members(char *needle);
+void search(char *needle);
 void stats();
 void register_member(char *f_name, char *l_name);
 void dump_to_file();
@@ -51,6 +53,8 @@ int main() {
   refresh();
   box(main_win, 0, 0);
   wrefresh(main_win);
+  
+  ESCDELAY = 0;
 
   mvprintw(0, (COLS - strlen(RF)) / 2, RF);
   mvprintw(1, 2, "Menu");
@@ -65,7 +69,7 @@ int main() {
 
 void menu() {
   int active = 0, chosen = 0, i, ch;
-  char **menu_s;
+  char **menu_s, *needle;
   const int MENU_END = 4, MENU_LEN = 5;
 
   panels[0] = new_panel(main_win);
@@ -81,6 +85,8 @@ void menu() {
 
   menu_win = newwin(MENU_LEN + 2, 12, 2, 0);
   panels[1] = new_panel(menu_win);
+  padw = newpad(5000, COLS - 2);
+  panels[2] = new_panel(padw);
   update_panels();
   doupdate();
   keypad(menu_win, true);
@@ -105,12 +111,10 @@ void menu() {
         break;
       case 1:
         hide_panel(panels[1]);
-        update_panels();
-        doupdate();
-        if (!reg(panels))
+        if (!reg())
           break;
       case 2:
-        members(panels);
+        members(needle);
         break;
       case 3:
         stats();
@@ -187,6 +191,7 @@ bool reg() {
   keypad(formw, true);
   set_form_win(rf_form, formw);
   dwin = derwin(formw, h, wi + 2, 1, 1);
+  keypad(dwin, true);
   set_form_sub(rf_form, dwin);
   box(formw, 0, 0);
   post_form(rf_form);
@@ -223,13 +228,11 @@ bool reg() {
       register_member(f_name, l_name);
     case 27:
       hide_panel(panels[3]);
-      update_panels();
-      doupdate();
-      prefresh(padw, curr_line, 1, 3, 1, y, x-2);
       if (ch == 27)
         show_panel(panels[1]);
       update_panels();
       doupdate();
+      prefresh(padw, curr_line, 1, 3, 1, y, x-2);
       unpost_form(rf_form);
       free_form(rf_form);
       curs_set(0);
@@ -244,41 +247,100 @@ bool reg() {
   }
 }
 
-void members() {
+void members(char *needle) {
   int x, y, ch, i;
   hide_panel(panels[1]);
   getmaxyx(main_win, y, x);
   werase(main_win);
   box(main_win, 0, 0);
-  padw = newpad(num_members + 2, x);
-  panels[2] = new_panel(padw);
   update_panels();
   doupdate();
 
-  member *curr = first_member;
-  for (i = 0; curr != NULL; i++) {
-    mvwprintw(padw, i, 1, curr->first_name);
-    mvwprintw(padw, i, 2 + strlen(curr->first_name), 
-              curr->last_name);
-    mvwprintw(padw, i, x - 12, "%d", curr->timestamp);
-    curr = curr->next;
-  }
-
+  search("");
+  bool search_mode = false;
+  char *needle_buf, *send_s;
+  int needle_idx = 0;
   curr_line = 0;
   prefresh(padw, curr_line, 1, 3, 1, y, x-2);
   for (;;) {
+    fflush(stdin);
     switch (ch = getch()) {
     case KEY_DOWN:
       if (curr_line + y <= num_members + 1)
         prefresh(padw, ++curr_line, 1, 3, 1, y, x-2);
+      move(1, 17 + needle_idx);
       break;
     case KEY_UP:
       if (curr_line > 0)
         prefresh(padw, --curr_line, 1, 3, 1, y, x-2);
+      move(1, 17 + needle_idx);
+      break;
+    case KEY_BACKSPACE:
+      if (search_mode && needle_idx > 0) {
+        werase(padw);
+        needle_buf[--needle_idx] = '\0';
+        send_s = (char *) malloc(needle_idx + 1);
+        strncpy(send_s, needle_buf, needle_idx+1);
+        search(send_s);
+        free(send_s);
+        prefresh(padw, curr_line, 1, 3, 1, y, x - 2);
+        mvprintw(1, 16, "                         ");
+        mvprintw(1, 17, "%s", needle_buf);
+      }
+      break;
+    case 47:
+      if (!search_mode) {
+        search_mode = true;
+        needle_buf = (char *) malloc(100);
+        mvprintw(1, 9, "Search:");
+        curs_set(1);
+        move(1, 17);
+      }
       break;
     case 27:
+      if (search_mode) {
+        search_mode = false;
+        needle_idx = 0;
+        curs_set(0);
+        werase(padw);
+        search("");
+        free(needle_buf);
+        mvprintw(1, 9, "                                ");
+        prefresh(padw, curr_line, 1, 3, 1, y, x - 2);
+        break;
+      }
       return;
+    default:
+      if (search_mode && needle_idx < 32) {
+        werase(padw);
+        needle_buf[needle_idx++] = (char) ch;
+        needle_buf[needle_idx] = '\0';
+        send_s = (char *) malloc(needle_idx + 1);
+        strncpy(send_s, needle_buf, needle_idx + 1);
+        search(send_s);
+        free(send_s);
+        prefresh(padw, curr_line, 1, 3, 1, y, x - 2);
+        mvprintw(1, 16, " %s", needle_buf);
+      }
     }
+  }
+}
+
+void search(char *needle) {
+  int i, y, x;
+  member *curr = first_member;
+  getmaxyx(main_win, y, x);
+  werase(padw);
+  for (i = 0; curr != NULL;) {
+    if (strstr(curr->first_name, needle) ||
+        strstr(curr->last_name, needle)) {
+      mvwprintw(padw, i, 1, curr->first_name);
+      mvwprintw(padw, i, 2 + strlen(curr->first_name), 
+                curr->last_name);
+      mvwprintw(padw, i, x - 12, "%d", curr->timestamp);
+      i++;
+    }
+    curr = curr->next;
   }
 }
 
