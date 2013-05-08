@@ -16,7 +16,6 @@ void members();
 void stats();
 void register_member(char *f_name, char *l_name);
 char *strstrip(char *str);
-const char *getfield(char *line, int num);
 void dump_to_file();
 int read_file();
 void update_status_line();
