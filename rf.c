@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <locale.h>
+#include <time.h>
 
 WINDOW *newwin(int height, int width, int starty, int startx);
 void destroy_win(WINDOW *local_win);
@@ -13,16 +14,32 @@ void home();
 bool reg();
 void members();
 void stats();
+void register_member(char *f_name, char *l_name);
+char *strstrip(char *str);
+const char *getfield(char *line, int num);
+void dump_to_file();
+int read_file();
+void update_status_line();
 
 const int PRICE = 30;
 const char *RF = "REALISTFORENINGEN";
+char* file_name= "members.csv";
 WINDOW *main_win;
 WINDOW *menu_win;
 PANEL *panels[3];
+int num_members, num_members_today;
+
+typedef struct member {
+  char *first_name;
+  char *last_name;
+  long int timestamp;
+  struct member *next;
+} member;
+
+member *first_member = NULL;
 
 int main() {
   setlocale(LC_ALL, "");
-
   initscr();
   raw();
   keypad(stdscr, true);
@@ -30,14 +47,7 @@ int main() {
   noecho();
   clear();
 
-  int rows, cols;
-  char *s;
-
-  getmaxyx(stdscr, rows, cols);
-  int y = 2;
-  int x = 0;
-
-  main_win = newwin(rows - 2, cols, y, x);
+  main_win = newwin(LINES - 2, COLS, 2, 0);
   keypad(main_win, true);
   refresh();
   box(main_win, 0, 0);
@@ -45,6 +55,7 @@ int main() {
 
   mvprintw(0, (COLS - strlen(RF)) / 2, RF);
   mvprintw(1, 2, "Menu");
+  num_members = read_file();
   home();
   menu();
 
@@ -155,20 +166,19 @@ void home() {
 
 bool reg() {
   int x, y, ch, h = 15, wi = 50, i;
-  FIELD *fields[4];
+  FIELD *fields[3];
   FORM *rf_form;
   WINDOW *formw, *dwin;
   char *f_name, *l_name;
-  unsigned int uid;
   getmaxyx(main_win, y, x);
 
   wrefresh(main_win);
 
-  for (i = 0; i < 3; i++) {
+  for (i = 0; i < 2; i++) {
     fields[i] = new_field(1, 25, 1 + i * 2, 12, 0, 0);    
     set_field_back(fields[i], A_UNDERLINE);
   }
-  fields[3] = NULL;
+  fields[2] = NULL;
 
   rf_form = new_form(fields);
   scale_form(rf_form, &h, &wi);
@@ -184,7 +194,6 @@ bool reg() {
   post_form(rf_form);
   mvwprintw(dwin, 1, 1, "  Fornavn:");
   mvwprintw(dwin, 3, 1, "Etternavn:");
-  mvwprintw(dwin, 5, 1, "       ID:");
   wrefresh(formw);
 
   curs_set(1);
@@ -210,10 +219,10 @@ bool reg() {
       form_driver(rf_form, REQ_DEL_PREV);
       break;
     case 10:
-      f_name = field_buffer(fields[0], 0);
-      l_name = field_buffer(fields[1], 0);
-      uid = strtoul(field_buffer(fields[2], 0), NULL, 10);
-      // TODO save data
+      form_driver(rf_form, REQ_NEXT_FIELD);
+      f_name = strstrip(field_buffer(fields[0], 0));
+      l_name = strstrip(field_buffer(fields[1], 0));
+      register_member(f_name, l_name);
     case 27:
       hide_panel(panels[2]);
       if (ch == 27)
@@ -223,7 +232,7 @@ bool reg() {
       unpost_form(rf_form);
       free_form(rf_form);
       curs_set(0);
-      for (i = 0; i < 3; i++)
+      for (i = 0; i < 2; i++)
         free_field(fields[i]);
       return ch == 10;
     default:
@@ -238,12 +247,19 @@ void members() {
   hide_panel(panels[1]);
   update_panels();
   doupdate();
-  int x, y, ch;
+  int x, y, ch, i;
   getmaxyx(main_win, y, x);
-  char *s = "Her kommer medlemslista.";
   werase(main_win);
   box(main_win, 0, 0);
-  mvwprintw(main_win, y / 2, (x - strlen(s)) / 2, s);
+
+  member *curr = first_member;
+  for (i = 0; curr != NULL; i++) {
+    mvwprintw(main_win, 1 + i, 1, curr->first_name); // TODO use pads
+    mvwprintw(main_win, 1 + i, 2 + strlen(curr->first_name), 
+              curr->last_name);
+    mvwprintw(main_win, 1 + i, x - 12, "%d", curr->timestamp);
+    curr = curr->next;
+  }
   wrefresh(main_win);
   for (;;) {
     switch (ch = getch()) {
@@ -251,6 +267,16 @@ void members() {
       return;
     }
   }
+}
+
+char *strstrip(char *str) {
+  char *end;
+  while (isspace(*str)) str++;
+  if (*str == 0) return str;
+  end = str + strlen(str) - 1;
+  while (end > str && isspace(*end)) end--;
+  *(end + 1) = 0;
+  return str;
 }
 
 void stats() {
@@ -267,4 +293,75 @@ void stats() {
       return;
     }
   }
+}
+
+void register_member(char *f_name, char *l_name) {
+  member *tmp = (member *) malloc(sizeof(member));
+  tmp->first_name = (char *) malloc(strlen(f_name) * sizeof(char));
+  strcpy(tmp->first_name, f_name);
+  tmp->last_name = (char *) malloc(strlen(l_name) * sizeof(char));
+  strcpy(tmp->last_name, l_name);
+  tmp->timestamp = time(NULL);
+  if (first_member == NULL) {
+    first_member = tmp;
+  } else {
+    tmp->next = first_member;
+    first_member = tmp;
+  }
+  dump_to_file();
+  num_members_today++;
+  num_members++;
+  update_status_line();
+}
+
+void update_status_line() {
+  mvprintw(1, COLS - 33, "NOK: %5d TDY: %5d TTL: %5d",
+           num_members_today * 30, num_members_today, num_members);
+}
+
+void dump_to_file() {
+  FILE *fp = fopen(file_name, "w");
+  member *curr = first_member;
+  while (curr != NULL) {
+    fprintf(fp, "%s,%s,%d\n", curr->last_name,
+            curr->first_name, curr->timestamp);
+    curr = curr->next;
+  }
+  fclose(fp);
+}
+
+member *parseline(char *line) {
+  char *l_name, *f_name;
+  long int ts;
+
+  l_name = strtok(line, ",");
+  f_name = strtok(NULL, ",\n");
+  ts =  strtol(strtok(NULL, ",\n"), NULL, 10);
+
+  member *tmp = (member *) malloc(sizeof(member));
+  tmp->first_name = (char *) malloc(strlen(f_name) * sizeof(char));
+  tmp->last_name = (char *) malloc(strlen(l_name) * sizeof(char));
+
+  tmp->first_name = strdup(f_name);
+  tmp->last_name = strdup(l_name);
+  tmp->timestamp = ts;
+  return tmp;
+}
+
+int read_file() {
+  FILE *fp = fopen(file_name, "r");
+  char line[1024];
+  int i;
+  while (fgets(line, 1024, fp)) {
+    member *tmp = parseline(strdup(line));
+    if (first_member == NULL) {
+      first_member = tmp;
+    } else {
+      tmp->next = first_member;
+      first_member = tmp;
+    }
+    i++;
+  }
+  fclose(fp);
+  return i;
 }
