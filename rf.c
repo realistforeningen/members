@@ -12,9 +12,9 @@ char *strstrip(char *str);
 int read_file();
 void destroy_win(WINDOW *local_win);
 void menu();
-void printmenu(char **menu_s, int active, int chosen);
+void printmenu(WINDOW *mw, char **menu_s, int ML, int active);
 void home();
-void members(char *needle);
+void members();
 void search(char *needle);
 void stats();
 void register_member(char *f_name, char *l_name);
@@ -34,10 +34,8 @@ const char *RF = "REALISTFORENINGEN";
 char* file_name= "members.csv";
 int num_members, num_members_today, curr_line;
 member *first_member = NULL;
-PANEL *panels[4];
-WINDOW *main_win;
-WINDOW *menu_win;
-WINDOW *padw;
+PANEL *panels[5];
+WINDOW *main_win, *menu_win, *edit_win, *padw;
 
 int main() {
   setlocale(LC_ALL, "");
@@ -57,7 +55,7 @@ int main() {
   ESCDELAY = 0;
 
   mvprintw(0, (COLS - strlen(RF)) / 2, RF);
-  mvprintw(1, 2, "Menu");
+  mvprintw(1, 2, "Menu  Edit");
   num_members = read_file();
   update_status_line();
   home();
@@ -68,9 +66,10 @@ int main() {
 }
 
 void menu() {
-  int active = 0, chosen = 0, i, ch;
-  char **menu_s, *needle;
-  const int MENU_END = 4, MENU_LEN = 5;
+  int active_y = 0, active_x = 0, chosen = 0, i, ch, y, x;
+  char **menu_s, **menu_e, *needle;
+  const int MENU_LEN = 5, EDIT_MENU_LEN = 3, MENU_NUM = 2;
+  getmaxyx(main_win, y, x);
 
   panels[0] = new_panel(main_win);
 
@@ -82,30 +81,62 @@ void menu() {
   menu_s[2] = "Members";
   menu_s[3] = "Stats";
   menu_s[4] = "Exit";
+  menu_e = malloc(sizeof(char*) * EDIT_MENU_LEN);
+  for (i = 0; i < EDIT_MENU_LEN; i++)
+    menu_e[i] = malloc(sizeof(char) * 15);
+  menu_e[0] = "Delete";
+  menu_e[1] = "Lifetime";
+  menu_e[2] = "Export";
 
+  // Windows for roll-down menus
   menu_win = newwin(MENU_LEN + 2, 12, 2, 0);
   panels[1] = new_panel(menu_win);
+  edit_win = newwin(EDIT_MENU_LEN + 2, 12, 2, 6);
+  panels[4] = new_panel(edit_win);
+
   padw = newpad(5000, COLS - 2);
   panels[2] = new_panel(padw);
   update_panels();
   doupdate();
+
   keypad(menu_win, true);
   box(menu_win, 0, 0);
-  
+  keypad(edit_win, true);
+  box(edit_win, 0, 0);
+
   for (;;) {
-    printmenu(menu_s, active, chosen);
+    if (active_x == 0) {
+      hide_panel(panels[4]);
+      show_panel(panels[1]);
+      printmenu(menu_win, menu_s, MENU_LEN, active_y);
+      printmenu(edit_win, menu_e, EDIT_MENU_LEN, active_y);
+    } else {
+      hide_panel(panels[1]);
+      show_panel(panels[4]);
+      printmenu(menu_win, menu_s, MENU_LEN, active_y);
+      printmenu(edit_win, menu_e, EDIT_MENU_LEN, active_y);
+    }
+    update_panels();
+    doupdate();
+
     switch (ch = getch()) {
     case 27:
       return;
+    case KEY_RIGHT:
+    case KEY_LEFT:
+      update_panels();
+      doupdate();
+      active_y = 0;
+      active_x = active_x == 0 ? 1 : 0;
+      break;
     case KEY_UP:
-      active == 0 ? active = MENU_END : active--;
+      active_y == 0 ? active_y = MENU_LEN - 1 : active_y--;
       break;
     case KEY_DOWN:
-      active == MENU_END ? active = 0 : active++;
+      active_y == MENU_LEN - 1 ? active_y = 0 : active_y++;
       break;
     case 10:
-      chosen = active;
-      switch (active) {
+      switch (active_y) {
       case 0:
         home();
         break;
@@ -114,7 +145,9 @@ void menu() {
         if (!reg())
           break;
       case 2:
-        members(needle);
+        members();
+        show_panel(panels[4]);
+        getch();
         break;
       case 3:
         stats();
@@ -122,33 +155,32 @@ void menu() {
       case 4:
         return;
       }
-      show_panel(panels[1]);
-      update_panels();
-      doupdate();
+      //      show_panel(panels[1]);
+      //      update_panels();
+      //      doupdate();
     }
   }
   for (i = 0; i < MENU_LEN; i++)
     free(menu_s[i]);
   free(menu_s);
+  for (i = 0; i < EDIT_MENU_LEN; i++)
+    free(menu_e[i]);
+  free(menu_e);
 }
 
-void printmenu(char **menu_s, int active, int chosen) {
+void printmenu(WINDOW *mw, char **menu_s, int ML, int active) {
   int y = 1, x = 1, i;
-  box(menu_win, 0, 0);
-  for (i = 0; i < 5; i++) {
-    if (i == chosen)
-      wattron(menu_win, A_BOLD);
+  box(mw, 0, 0);
+  for (i = 0; i < ML; i++) {
     if (i == active) {
-      wattron(menu_win, A_REVERSE);
-      mvwprintw(menu_win, y++, x, menu_s[i]);
-      wattroff(menu_win, A_REVERSE);
+      wattron(mw, A_REVERSE);
+      mvwprintw(mw, y++, x, menu_s[i]);
+      wattroff(mw, A_REVERSE);
     } else {
-      mvwprintw(menu_win, y++, x, menu_s[i]);
+      mvwprintw(mw, y++, x, menu_s[i]);
     }
-    if (i == chosen)
-      wattroff(menu_win, A_BOLD);
   }
-  wrefresh(menu_win);
+  //wrefresh(mw);
 }
 
 void home() {
@@ -228,8 +260,8 @@ bool reg() {
       register_member(f_name, l_name);
     case 27:
       hide_panel(panels[3]);
-      if (ch == 27)
-        show_panel(panels[1]);
+      //      if (ch == 27)
+        //        show_panel(panels[1]);
       update_panels();
       doupdate();
       prefresh(padw, curr_line, 1, 3, 1, y, x-2);
@@ -247,7 +279,7 @@ bool reg() {
   }
 }
 
-void members(char *needle) {
+void members() {
   int x, y, ch, i;
   hide_panel(panels[1]);
   getmaxyx(main_win, y, x);
@@ -263,7 +295,6 @@ void members(char *needle) {
   curr_line = 0;
   prefresh(padw, curr_line, 1, 3, 1, y, x-2);
   for (;;) {
-    fflush(stdin);
     switch (ch = getch()) {
     case KEY_DOWN:
       if (curr_line + y <= num_members + 1)
@@ -309,6 +340,7 @@ void members(char *needle) {
         prefresh(padw, curr_line, 1, 3, 1, y, x - 2);
         break;
       }
+      prefresh(padw, curr_line, 1, 3, 1, y, x - 2);
       return;
     default:
       if (search_mode && needle_idx < 32) {
@@ -334,8 +366,8 @@ void search(char *needle) {
   for (i = 0; curr != NULL;) {
     if (strstr(curr->first_name, needle) ||
         strstr(curr->last_name, needle)) {
-      mvwprintw(padw, i, 1, curr->first_name);
-      mvwprintw(padw, i, 2 + strlen(curr->first_name), 
+      mvwprintw(padw, i, 2, curr->first_name);
+      mvwprintw(padw, i, 3 + strlen(curr->first_name), 
                 curr->last_name);
       mvwprintw(padw, i, x - 12, "%d", curr->timestamp);
       i++;
@@ -346,10 +378,13 @@ void search(char *needle) {
 
 char *strstrip(char *str) {
   char *end;
-  while (isspace(*str)) str++;
-  if (*str == 0) return str;
+  while (isspace(*str))
+    str++;
+  if (*str == 0)
+    return str;
   end = str + strlen(str) - 1;
-  while (end > str && isspace(*end)) end--;
+  while (end > str && isspace(*end))
+    end--;
   *(end + 1) = 0;
   return str;
 }
