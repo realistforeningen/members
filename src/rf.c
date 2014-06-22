@@ -15,7 +15,7 @@ void menu();
 void printmenu(WINDOW *mw, char **menu_s, int ML, int active);
 void home();
 void members();
-void search(char *needle);
+void search(char *needle, int hl);
 void stats();
 void register_member(char *f_name, char *l_name);
 void dump_to_file();
@@ -32,7 +32,7 @@ typedef struct member {
 const int PRICE = 50;
 const char *RF = "REALISTFORENINGEN";
 char* file_name= "members.csv";
-int num_members, num_members_today, curr_line;
+int num_members, num_members_today, curr_line, curr_scroll;
 member *first_member = NULL;
 PANEL *panels[5];
 WINDOW *main_win, *menu_win, *edit_win, *padw;
@@ -76,17 +76,17 @@ void menu() {
   menu_s = malloc(sizeof(char*) * MENU_LEN);
   for (i = 0; i < MENU_LEN; i++)
     menu_s[i] = malloc(sizeof(char) * 15);
-  menu_s[0] = "Home";
-  menu_s[1] = "Register";
-  menu_s[2] = "Members";
-  menu_s[3] = "Stats";
-  menu_s[4] = "Exit";
+  menu_s[0] = " Home     ";
+  menu_s[1] = " Register ";
+  menu_s[2] = " Members  ";
+  menu_s[3] = " Stats    ";
+  menu_s[4] = " Exit     ";
   menu_e = malloc(sizeof(char*) * EDIT_MENU_LEN);
   for (i = 0; i < EDIT_MENU_LEN; i++)
     menu_e[i] = malloc(sizeof(char) * 15);
-  menu_e[0] = "Delete";
-  menu_e[1] = "Lifetime";
-  menu_e[2] = "Export";
+  menu_e[0] = " Delete   ";
+  menu_e[1] = " Lifetime ";
+  menu_e[2] = " Export   ";
 
   // Windows for roll-down menus
   menu_win = newwin(MENU_LEN + 2, 12, 2, 0);
@@ -226,7 +226,7 @@ void reg() {
   post_form(rf_form);
   mvwprintw(dwin, 1, 1, "  Fornavn:");
   mvwprintw(dwin, 3, 1, "Etternavn:");
-  prefresh(padw, curr_line, 1, 3, 1, y, x-2);
+  //  prefresh(padw, curr_line, 1, 3, 1, y, x-2);
   wrefresh(formw);
   curs_set(1);
   for (;;) {
@@ -261,7 +261,7 @@ void reg() {
         //        show_panel(panels[1]);
       update_panels();
       doupdate();
-      prefresh(padw, curr_line, 1, 3, 1, y, x-2);
+      //      prefresh(padw, curr_line, 1, 3, 1, y, x-2);
       unpost_form(rf_form);
       free_form(rf_form);
       curs_set(0);
@@ -285,33 +285,47 @@ void members() {
   update_panels();
   doupdate();
 
-  search("");
+  search("", 0);
   bool search_mode = false;
-  char *needle_buf, *send_s;
+  char *needle_buf = "", *send_s;
   int needle_idx = 0;
+  bool btm = false;
   curr_line = 0;
-  prefresh(padw, curr_line, 1, 3, 1, y, x-2);
+  curr_scroll = 0;
+  prefresh(padw, curr_scroll, 1, 3, 1, y, x-2);
   for (;;) {
     switch (ch = getch()) {
     case KEY_DOWN:
-      if (curr_line + y <= num_members + 1)
-        prefresh(padw, ++curr_line, 1, 3, 1, y, x-2);
+      if (curr_line == num_members - 1) {
+        btm = false;
+        break;}
+      search(needle_buf, ++curr_line);
+      if (curr_line == num_members - 1 && btm)
+        break;
+      if (curr_line > y - 3)
+        prefresh(padw, ++curr_scroll, 1, 3, 1, y, x-2);
       move(1, 27 + needle_idx);
       break;
     case KEY_UP:
-      if (curr_line > 0)
-        prefresh(padw, --curr_line, 1, 3, 1, y, x-2);
+      if (curr_line == 0) {
+        btm = false;
+        break;
+      }
+      btm = true;
+      search(needle_buf, --curr_line);
+      if (curr_line < curr_scroll)
+        prefresh(padw, --curr_scroll, 1, 3, 1, y, x-2);
       move(1, 27 + needle_idx);
       break;
     case KEY_BACKSPACE:
       if (search_mode && needle_idx > 0) {
-        werase(padw);
+        //        werase(main_win);
         needle_buf[--needle_idx] = '\0';
         send_s = (char *) malloc(needle_idx + 1);
         strncpy(send_s, needle_buf, needle_idx+1);
-        search(send_s);
+        search(send_s, 0);
         free(send_s);
-        prefresh(padw, curr_line, 1, 3, 1, y, x - 2);
+        //        prefresh(padw, curr_line, 1, 3, 1, y, x - 2);
         mvprintw(1, 26, "                         ");
         mvprintw(1, 27, "%s", needle_buf);
       }
@@ -331,14 +345,14 @@ void members() {
         needle_idx = 0;
         curs_set(0);
         werase(padw);
-        search("");
+        search("", 0);
         free(needle_buf);
         mvprintw(1, 19, "                                ");
-        prefresh(padw, curr_line, 1, 3, 1, y, x - 2);
+        prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
         break;
       }
       werase(padw);
-      prefresh(padw, curr_line, 1, 3, 1, y, x - 2);
+      prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
       return;
     default:
       //      mvprintw(1, 19,"%d", ch);
@@ -348,31 +362,33 @@ void members() {
         needle_buf[needle_idx] = '\0';
         send_s = (char *) malloc(needle_idx + 1);
         strncpy(send_s, needle_buf, needle_idx + 1);
-        search(send_s);
+        search(send_s, 0);
         free(send_s);
-        prefresh(padw, curr_line, 1, 3, 1, y, x - 2);
+        prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
         mvprintw(1, 26, " %s", needle_buf);
       }
     }
   }
 }
 
-void search(char *needle) {
+void search(char *needle, int hl) {
   int i, y, x;
   member *curr = first_member;
   getmaxyx(main_win, y, x);
   werase(padw);
+  //  box(main_win, 0, 0);
   for (i = 0; curr != NULL;) {
     if (strstr(curr->first_name, needle) ||
         strstr(curr->last_name, needle)) {
-      mvwprintw(padw, i, 2, curr->first_name);
-      mvwprintw(padw, i, 3 + strlen(curr->first_name), 
-                curr->last_name);
+      i == hl ? wattron(padw, A_REVERSE) : 0;
+      mvwprintw(padw, i, 2, "%s %s", curr->first_name, curr->last_name);
       mvwprintw(padw, i, x - 12, "%d", curr->timestamp);
+      i == hl ? wattroff(padw, A_REVERSE) : 0;
       i++;
     }
     curr = curr->next;
   }
+  prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
 }
 
 char *strstrip(char *str) {
