@@ -7,7 +7,7 @@
 #include <form.h>
 #include <panel.h>
 
-bool reg();
+void reg();
 char *strstrip(char *str);
 int read_file();
 void destroy_win(WINDOW *local_win);
@@ -29,7 +29,7 @@ typedef struct member {
   struct member *next;
 } member;
 
-const int PRICE = 30;
+const int PRICE = 50;
 const char *RF = "REALISTFORENINGEN";
 char* file_name= "members.csv";
 int num_members, num_members_today, curr_line;
@@ -66,7 +66,7 @@ int main() {
 }
 
 void menu() {
-  int active_y = 0, active_x = 0, chosen = 0, i, ch, y, x;
+  int active_y = 0, active_x = 0, chosen = 0, i, ch, y, x, cur_menu_len;
   char **menu_s, **menu_e, *needle;
   const int MENU_LEN = 5, EDIT_MENU_LEN = 3, MENU_NUM = 2;
   getmaxyx(main_win, y, x);
@@ -109,12 +109,14 @@ void menu() {
       hide_panel(panels[4]);
       show_panel(panels[1]);
       printmenu(menu_win, menu_s, MENU_LEN, active_y);
-      printmenu(edit_win, menu_e, EDIT_MENU_LEN, active_y);
+      //      printmenu(edit_win, menu_e, EDIT_MENU_LEN, active_y);
+      cur_menu_len = MENU_LEN;
     } else {
       hide_panel(panels[1]);
       show_panel(panels[4]);
-      printmenu(menu_win, menu_s, MENU_LEN, active_y);
+      //      printmenu(menu_win, menu_s, MENU_LEN, active_y);
       printmenu(edit_win, menu_e, EDIT_MENU_LEN, active_y);
+      cur_menu_len = EDIT_MENU_LEN;
     }
     update_panels();
     doupdate();
@@ -124,30 +126,27 @@ void menu() {
       return;
     case KEY_RIGHT:
     case KEY_LEFT:
-      update_panels();
-      doupdate();
+      //      update_panels();
+      //      doupdate();
       active_y = 0;
       active_x = active_x == 0 ? 1 : 0;
       break;
     case KEY_UP:
-      active_y == 0 ? active_y = MENU_LEN - 1 : active_y--;
+      active_y == 0 ? active_y = cur_menu_len - 1 : active_y--;
       break;
     case KEY_DOWN:
-      active_y == MENU_LEN - 1 ? active_y = 0 : active_y++;
+      active_y == cur_menu_len - 1 ? active_y = 0 : active_y++;
       break;
     case 10:
       switch (active_y) {
       case 0:
-        home();
+        active_x ? 0 : home();
         break;
       case 1:
-        hide_panel(panels[1]);
-        if (!reg())
-          break;
+        active_x ? 0 : reg();
+        break;
       case 2:
-        members();
-        show_panel(panels[4]);
-        getch();
+        active_x ? 0 : members();
         break;
       case 3:
         stats();
@@ -155,9 +154,6 @@ void menu() {
       case 4:
         return;
       }
-      //      show_panel(panels[1]);
-      //      update_panels();
-      //      doupdate();
     }
   }
   for (i = 0; i < MENU_LEN; i++)
@@ -200,12 +196,13 @@ void home() {
   }
 }
 
-bool reg() {
+void reg() {
   int x, y, ch, h = 15, wi = 50, i;
   FIELD *fields[3];
   FORM *rf_form;
   WINDOW *formw, *dwin;
   char *f_name, *l_name;
+  hide_panel(panels[1]);
   getmaxyx(main_win, y, x);
 
   for (i = 0; i < 2; i++) {
@@ -270,7 +267,7 @@ bool reg() {
       curs_set(0);
       for (i = 0; i < 2; i++)
         free_field(fields[i]);
-      return ch == 10;
+      return;
     default:
       form_driver(rf_form, ch);
       break;
@@ -299,12 +296,12 @@ void members() {
     case KEY_DOWN:
       if (curr_line + y <= num_members + 1)
         prefresh(padw, ++curr_line, 1, 3, 1, y, x-2);
-      move(1, 17 + needle_idx);
+      move(1, 27 + needle_idx);
       break;
     case KEY_UP:
       if (curr_line > 0)
         prefresh(padw, --curr_line, 1, 3, 1, y, x-2);
-      move(1, 17 + needle_idx);
+      move(1, 27 + needle_idx);
       break;
     case KEY_BACKSPACE:
       if (search_mode && needle_idx > 0) {
@@ -315,17 +312,17 @@ void members() {
         search(send_s);
         free(send_s);
         prefresh(padw, curr_line, 1, 3, 1, y, x - 2);
-        mvprintw(1, 16, "                         ");
-        mvprintw(1, 17, "%s", needle_buf);
+        mvprintw(1, 26, "                         ");
+        mvprintw(1, 27, "%s", needle_buf);
       }
       break;
     case 47:
       if (!search_mode) {
         search_mode = true;
         needle_buf = (char *) malloc(100);
-        mvprintw(1, 9, "Search:");
+        mvprintw(1, 19, "Search:");
         curs_set(1);
-        move(1, 17);
+        move(1, 27);
       }
       break;
     case 27:
@@ -336,13 +333,15 @@ void members() {
         werase(padw);
         search("");
         free(needle_buf);
-        mvprintw(1, 9, "                                ");
+        mvprintw(1, 19, "                                ");
         prefresh(padw, curr_line, 1, 3, 1, y, x - 2);
         break;
       }
+      werase(padw);
       prefresh(padw, curr_line, 1, 3, 1, y, x - 2);
       return;
     default:
+      //      mvprintw(1, 19,"%d", ch);
       if (search_mode && needle_idx < 32) {
         werase(padw);
         needle_buf[needle_idx++] = (char) ch;
@@ -352,7 +351,7 @@ void members() {
         search(send_s);
         free(send_s);
         prefresh(padw, curr_line, 1, 3, 1, y, x - 2);
-        mvprintw(1, 16, " %s", needle_buf);
+        mvprintw(1, 26, " %s", needle_buf);
       }
     }
   }
