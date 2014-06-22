@@ -8,6 +8,7 @@
 #include <panel.h>
 
 void reg();
+bool delete(char *needle, int dl);
 char *strstrip(char *str);
 int read_file();
 void destroy_win(WINDOW *local_win);
@@ -319,19 +320,27 @@ void members() {
       break;
     case KEY_BACKSPACE:
       if (search_mode && needle_idx > 0) {
-        //        werase(main_win);
         needle_buf[--needle_idx] = '\0';
         send_s = (char *) malloc(needle_idx + 1);
         strncpy(send_s, needle_buf, needle_idx+1);
         search(send_s, 0);
         free(send_s);
-        //        prefresh(padw, curr_line, 1, 3, 1, y, x - 2);
         mvprintw(1, 26, "                         ");
         mvprintw(1, 27, "%s", needle_buf);
       }
       break;
+    case KEY_DC:
+      if (!delete(needle_buf, curr_line))
+        break;
+      search(needle_buf, 0);
+      num_members--;
+      dump_to_file();
+      update_status_line();
+      break;
     case 47:
       if (!search_mode) {
+        curr_line = 0;
+        curr_scroll = 0;
         search_mode = true;
         needle_buf = (char *) malloc(100);
         mvprintw(1, 19, "Search:");
@@ -371,12 +380,29 @@ void members() {
   }
 }
 
+bool delete(char *needle, int dl) {
+  int i;
+  member *curr = first_member;
+  member *prev = first_member;
+  for (i = 0; curr != NULL;) {
+    if (strstr(curr->first_name, needle) ||
+        strstr(curr->last_name, needle)) {
+      if (i++ == dl) {
+        prev->next = curr->next;
+        return true;
+      }
+    }
+    prev = curr;
+    curr = curr->next;
+  }
+  return false;
+}
+
 void search(char *needle, int hl) {
   int i, y, x;
   member *curr = first_member;
   getmaxyx(main_win, y, x);
   werase(padw);
-  //  box(main_win, 0, 0);
   for (i = 0; curr != NULL;) {
     if (strstr(curr->first_name, needle) ||
         strstr(curr->last_name, needle)) {
