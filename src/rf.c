@@ -404,6 +404,7 @@ bool delete(char *needle, int dl) {
 void search(char *needle, int hl) {
   int i, y, x;
   member *curr = first_member;
+  //  char buff[70];
   getmaxyx(main_win, y, x);
   werase(padw);
   for (i = 0; curr != NULL;) {
@@ -412,6 +413,8 @@ void search(char *needle, int hl) {
       i == hl ? wattron(padw, A_REVERSE) : 0;
       mvwprintw(padw, i, 2, "%s %s", curr->first_name, curr->last_name);
       mvwprintw(padw, i, x - 26, "%s", asctime(localtime(&curr->timestamp)));
+      //      strftime(buff, sizeof(buff), "%X %F", localtime(&curr->timestamp));
+      //      mvwprintw(padw, i, x - 36, "%s", buff);
       i == hl ? wattroff(padw, A_REVERSE) : 0;
       i++;
     }
@@ -470,7 +473,7 @@ void register_member(char *f_name, char *l_name) {
 
 void update_status_line() {
   mvprintw(1, COLS - 33, "NOK: %5d TDY: %5d TTL: %5d",
-           num_members_today * 30, num_members_today, num_members);
+           num_members_today * PRICE, num_members_today, num_members);
 }
 
 void dump_to_file() {
@@ -503,7 +506,7 @@ member *parseline(char *line) {
 }
 
 int read_file() {
-  FILE *fp = fopen(file_name, "r");
+  FILE *fp = fopen(file_name, "a+");
   char line[1024];
   int i = 0;
   while (fgets(line, 1024, fp)) {
