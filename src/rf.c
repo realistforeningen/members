@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #define _X_OPEN_SOURCE_EXTENDED
 #include <locale.h>
 #include <string.h>
@@ -7,21 +8,23 @@
 #include <form.h>
 #include <panel.h>
 
-void reg();
+int isspace(int ch);
+void destroy_win(WINDOW *local_win);
+WINDOW *newwin(int height, int width, int starty, int startx);
+
 bool delete(char *needle, int dl);
 char *strstrip(char *str);
 int read_file();
-void destroy_win(WINDOW *local_win);
-void menu();
-void printmenu(WINDOW *mw, char **menu_s, int ML, int active);
+void dump_to_file();
 void home();
 void members();
+void menu();
+void printmenu(WINDOW *mw, char **menu_s, int ML, int active);
+void reg();
+void register_member(char *f_name, char *l_name);
 void search(char *needle, int hl);
 void stats();
-void register_member(char *f_name, char *l_name);
-void dump_to_file();
 void update_status_line();
-WINDOW *newwin(int height, int width, int starty, int startx);
 
 typedef struct member {
   char *first_name;
@@ -67,10 +70,9 @@ int main() {
 }
 
 void menu() {
-  int active_y = 0, active_x = 0, chosen = 0, i, ch, y, x, cur_menu_len;
-  char **menu_s, **menu_e, *needle;
-  const int MENU_LEN = 5, EDIT_MENU_LEN = 3, MENU_NUM = 2;
-  getmaxyx(main_win, y, x);
+  int active_y = 0, active_x = 0, i, ch, cur_menu_len;
+  char **menu_s, **menu_e;
+  const int MENU_LEN = 5, EDIT_MENU_LEN = 3;
 
   panels[0] = new_panel(main_win);
 
@@ -278,7 +280,7 @@ void reg() {
 }
 
 void members() {
-  int x, y, ch, i;
+  int x, y, ch;
   hide_panel(panels[1]);
   getmaxyx(main_win, y, x);
   werase(main_win);
@@ -385,8 +387,8 @@ bool delete(char *needle, int dl) {
   member *curr = first_member;
   member *prev = first_member;
   for (i = 0; curr != NULL;) {
-    if (strstr(curr->first_name, needle) ||
-        strstr(curr->last_name, needle)) {
+    if (strcasestr(curr->first_name, needle) ||
+        strcasestr(curr->last_name, needle)) {
       if (i++ == dl) {
         prev->next = curr->next;
         return true;
@@ -404,8 +406,8 @@ void search(char *needle, int hl) {
   getmaxyx(main_win, y, x);
   werase(padw);
   for (i = 0; curr != NULL;) {
-    if (strstr(curr->first_name, needle) ||
-        strstr(curr->last_name, needle)) {
+    if (strcasestr(curr->first_name, needle) ||
+        strcasestr(curr->last_name, needle)) {
       i == hl ? wattron(padw, A_REVERSE) : 0;
       mvwprintw(padw, i, 2, "%s %s", curr->first_name, curr->last_name);
       mvwprintw(padw, i, x - 12, "%d", curr->timestamp);
@@ -474,7 +476,7 @@ void dump_to_file() {
   FILE *fp = fopen(file_name, "w");
   member *curr = first_member;
   while (curr != NULL) {
-    fprintf(fp, "%s,%s,%d\n", curr->last_name,
+    fprintf(fp, "%s,%s,%ld\n", curr->last_name,
             curr->first_name, curr->timestamp);
     curr = curr->next;
   }
@@ -502,7 +504,7 @@ member *parseline(char *line) {
 int read_file() {
   FILE *fp = fopen(file_name, "r");
   char line[1024];
-  int i;
+  int i = 0;
   while (fgets(line, 1024, fp)) {
     member *tmp = parseline(strdup(line));
     if (first_member == NULL) {

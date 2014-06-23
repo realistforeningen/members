@@ -56,7 +56,7 @@ LIBS       += -lpanelw
 LIBS       += -lformw
 
 # compiler
-CC          = gcc
+CC          = clang
 
 # compiler specific flags
 CFLAGS      = -Wall
@@ -155,7 +155,8 @@ $(BUILDDIR)/$(EXECNAME): $(COMPOBJS)
 # $@ :: name of current target, (left of : , $(BUILDDIR)/%.o)
 # $^ :: name of prerequisites, (right of : , $(SOURCEDIR)/%.$(SOURCEEXT))
 $(BUILDDIR)/%.o: $(SOURCEDIR)/%.$(SOURCEEXT) | $(BUILDDIR)
-	$(CC) $(INCLUDES) $(LIBS) -c $(CFLAGS) -o $@ $^
+#	$(CC) $(INCLUDES) $(LIBS) -c $(CFLAGS) -o $@ $^
+	$(CC) $(INCLUDES) -c $(CFLAGS) -o $@ $^
 
 $(BUILDDIR):
 	mkdir -p $(BUILDDIR)
