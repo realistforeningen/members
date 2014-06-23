@@ -87,9 +87,9 @@ void menu() {
   menu_e = malloc(sizeof(char*) * EDIT_MENU_LEN);
   for (i = 0; i < EDIT_MENU_LEN; i++)
     menu_e[i] = malloc(sizeof(char) * 15);
-  menu_e[0] = " Delete   ";
-  menu_e[1] = " Lifetime ";
-  menu_e[2] = " Export   ";
+  menu_e[0] = " Backup   ";
+  menu_e[1] = " N/A      ";
+  menu_e[2] = " N/A      ";
 
   // Windows for roll-down menus
   menu_win = newwin(MENU_LEN + 2, 12, 2, 0);
@@ -410,7 +410,7 @@ void search(char *needle, int hl) {
         strcasestr(curr->last_name, needle)) {
       i == hl ? wattron(padw, A_REVERSE) : 0;
       mvwprintw(padw, i, 2, "%s %s", curr->first_name, curr->last_name);
-      mvwprintw(padw, i, x - 12, "%d", curr->timestamp);
+      mvwprintw(padw, i, x - 26, "%s", asctime(localtime(&curr->timestamp)));
       i == hl ? wattroff(padw, A_REVERSE) : 0;
       i++;
     }
