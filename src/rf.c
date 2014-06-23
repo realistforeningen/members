@@ -314,7 +314,8 @@ void members() {
         btm = false;
         break;
       }
-      btm = true;
+      if (curr_line == num_members - 1)
+        btm = true;
       search(needle_buf, --curr_line);
       if (curr_line < curr_scroll)
         prefresh(padw, --curr_scroll, 1, 3, 1, y, x-2);
