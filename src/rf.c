@@ -22,7 +22,7 @@ void menu();
 void printmenu(WINDOW *mw, char **menu_s, int ML, int active);
 void reg();
 void register_member(char *f_name, char *l_name);
-void search(char *needle, int hl);
+int search(char *needle, int hl);
 void stats();
 void update_status_line();
 
@@ -37,6 +37,7 @@ const int PRICE = 50;
 const char *RF = "REALISTFORENINGEN";
 char* file_name= "members.csv";
 int num_members, num_members_today, curr_line, curr_scroll;
+long int semstart;
 member *first_member = NULL;
 PANEL *panels[5];
 WINDOW *main_win, *menu_win, *edit_win, *padw;
@@ -57,6 +58,15 @@ int main() {
   wrefresh(main_win);
   
   ESCDELAY = 0;
+
+  time_t ts_now = time(NULL);
+  struct tm *now = gmtime(&ts_now);
+  now->tm_hour = 0;
+  now->tm_min = 0;
+  now->tm_sec = 0;
+  now->tm_mday = 1;
+  now->tm_mon = now->tm_mon < 6 ? 0 : 6;
+  semstart = (long int) mktime(now);
 
   mvprintw(0, (COLS - strlen(RF)) / 2, RF);
   mvprintw(1, 2, "Menu  Edit");
@@ -112,12 +122,10 @@ void menu() {
       hide_panel(panels[4]);
       show_panel(panels[1]);
       printmenu(menu_win, menu_s, MENU_LEN, active_y);
-      //      printmenu(edit_win, menu_e, EDIT_MENU_LEN, active_y);
       cur_menu_len = MENU_LEN;
     } else {
       hide_panel(panels[1]);
       show_panel(panels[4]);
-      //      printmenu(menu_win, menu_s, MENU_LEN, active_y);
       printmenu(edit_win, menu_e, EDIT_MENU_LEN, active_y);
       cur_menu_len = EDIT_MENU_LEN;
     }
@@ -129,8 +137,6 @@ void menu() {
       return;
     case KEY_RIGHT:
     case KEY_LEFT:
-      //      update_panels();
-      //      doupdate();
       active_y = 0;
       active_x = active_x == 0 ? 1 : 0;
       break;
@@ -171,15 +177,10 @@ void printmenu(WINDOW *mw, char **menu_s, int ML, int active) {
   int y = 1, x = 1, i;
   box(mw, 0, 0);
   for (i = 0; i < ML; i++) {
-    if (i == active) {
-      wattron(mw, A_REVERSE);
-      mvwprintw(mw, y++, x, menu_s[i]);
-      wattroff(mw, A_REVERSE);
-    } else {
-      mvwprintw(mw, y++, x, menu_s[i]);
-    }
+    i == active ? wattron(mw, A_REVERSE) : 0;
+    mvwprintw(mw, y++, x, menu_s[i]);
+    i == active ? wattroff(mw, A_REVERSE) : 0;
   }
-  //wrefresh(mw);
 }
 
 void home() {
@@ -229,7 +230,6 @@ void reg() {
   post_form(rf_form);
   mvwprintw(dwin, 1, 1, "  Fornavn:");
   mvwprintw(dwin, 3, 1, "Etternavn:");
-  //  prefresh(padw, curr_line, 1, 3, 1, y, x-2);
   wrefresh(formw);
   curs_set(1);
   for (;;) {
@@ -288,7 +288,7 @@ void members() {
   update_panels();
   doupdate();
 
-  search("", 0);
+  int visible_members = search("", 0);
   bool search_mode = false;
   char *needle_buf = "", *send_s;
   int needle_idx = 0;
@@ -299,11 +299,11 @@ void members() {
   for (;;) {
     switch (ch = getch()) {
     case KEY_DOWN:
-      if (curr_line == num_members - 1) {
+      if (curr_line == visible_members - 1) {
         btm = false;
         break;}
-      search(needle_buf, ++curr_line);
-      if (curr_line == num_members - 1 && btm)
+      visible_members = search(needle_buf, ++curr_line);
+      if (curr_line == visible_members - 1 && btm)
         break;
       if (curr_line > y - 3)
         prefresh(padw, ++curr_scroll, 1, 3, 1, y, x-2);
@@ -314,9 +314,9 @@ void members() {
         btm = false;
         break;
       }
-      if (curr_line == num_members - 1)
+      if (curr_line == visible_members - 1)
         btm = true;
-      search(needle_buf, --curr_line);
+      visible_members = search(needle_buf, --curr_line);
       if (curr_line < curr_scroll)
         prefresh(padw, --curr_scroll, 1, 3, 1, y, x-2);
       move(1, 27 + needle_idx);
@@ -326,7 +326,7 @@ void members() {
         needle_buf[--needle_idx] = '\0';
         send_s = (char *) malloc(needle_idx + 1);
         strncpy(send_s, needle_buf, needle_idx+1);
-        search(send_s, 0);
+        visible_members = search(send_s, curr_line = 0);
         free(send_s);
         mvprintw(1, 26, "                         ");
         mvprintw(1, 27, "%s", needle_buf);
@@ -335,7 +335,7 @@ void members() {
     case KEY_DC: // Delete
       if (!delete(needle_buf, curr_line))
         break;
-      search(needle_buf, 0);
+      visible_members = search(needle_buf, 0);
       num_members--;
       dump_to_file();
       update_status_line();
@@ -357,7 +357,7 @@ void members() {
         needle_idx = 0;
         curs_set(0);
         werase(padw);
-        search("", 0);
+        visible_members = search("", 0);
         free(needle_buf);
         mvprintw(1, 19, "                                ");
         prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
@@ -374,7 +374,7 @@ void members() {
         needle_buf[needle_idx] = '\0';
         send_s = (char *) malloc(needle_idx + 1);
         strncpy(send_s, needle_buf, needle_idx + 1);
-        search(send_s, 0);
+        visible_members = search(send_s, 0);
         free(send_s);
         prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
         mvprintw(1, 26, " %s", needle_buf);
@@ -388,8 +388,8 @@ bool delete(char *needle, int dl) {
   member *curr = first_member;
   member *prev = first_member;
   for (i = 0; curr != NULL;) {
-    if (strcasestr(curr->first_name, needle) ||
-        strcasestr(curr->last_name, needle)) {
+    if ((strcasestr(curr->first_name, needle) ||
+        strcasestr(curr->last_name, needle)) && curr->timestamp > semstart) {
       if (i++ == dl) {
         prev->next = curr->next;
         free(curr);
@@ -404,14 +404,14 @@ bool delete(char *needle, int dl) {
   return false;
 }
 
-void search(char *needle, int hl) {
+int search(char *needle, int hl) {
   int i, y, x;
   member *curr = first_member;
   getmaxyx(main_win, y, x);
   werase(padw);
   for (i = 0; curr != NULL;) {
-    if (strcasestr(curr->first_name, needle) ||
-        strcasestr(curr->last_name, needle)) {
+    if ((strcasestr(curr->first_name, needle) ||
+        strcasestr(curr->last_name, needle)) && curr->timestamp > semstart) {
       i == hl ? wattron(padw, A_REVERSE) : 0;
       mvwprintw(padw, i, 2, "%s %s", curr->first_name, curr->last_name);
       mvwprintw(padw, i, x - 26, "%s", asctime(localtime(&curr->timestamp)));
@@ -421,6 +421,7 @@ void search(char *needle, int hl) {
     curr = curr->next;
   }
   prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
+  return i;
 }
 
 char *strstrip(char *str) {
