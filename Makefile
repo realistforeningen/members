@@ -56,7 +56,9 @@ LIBS       += -lformw
 LIBS       += -lncursesw
 
 # compiler
-CC          = clang
+#CC          = $(shell if [ -z $$(which clang) ]; then echo gcc; else echo clang; fi)
+CC          = $(shell if command -v clang > /dev/null 2>&1;\
+	then echo clang; else echo gcc; fi)
 
 # compiler specific flags
 CFLAGS      = -Wall

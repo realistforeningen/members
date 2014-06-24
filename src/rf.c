@@ -38,7 +38,7 @@ const char *RF = "REALISTFORENINGEN";
 char* file_name= "members.csv";
 int num_members, num_members_today, curr_line, curr_scroll;
 long int semstart;
-member *first_member = NULL;
+member *first_member = NULL, *last_member = NULL;
 PANEL *panels[5];
 WINDOW *main_win, *menu_win, *edit_win, *padw;
 
@@ -392,9 +392,11 @@ bool delete(char *needle, int dl) {
         strcasestr(curr->last_name, needle)) && curr->timestamp > semstart) {
       if (i++ == dl) {
         prev->next = curr->next;
+        if (prev->next == NULL)
+          last_member = prev;
         free(curr);
         if (i == 1)
-          first_member = NULL;
+          first_member = last_member = NULL;
         return true;
       }
     }
@@ -469,7 +471,7 @@ void register_member(char *f_name, char *l_name) {
   strcpy(tmp->last_name, l_name);
   tmp->timestamp = time(NULL);
   if (first_member == NULL) {
-    first_member = tmp;
+    first_member = last_member = tmp;
   } else {
     tmp->next = first_member;
     first_member = tmp;
@@ -523,10 +525,12 @@ int read_file() {
   while (fgets(line, 1024, fp)) {
     member *tmp = parseline(strdup(line));
     if (first_member == NULL) {
-      first_member = tmp;
+      first_member = last_member = tmp;
     } else {
-      tmp->next = first_member;
-      first_member = tmp;
+      //      tmp->next = first_member;
+      //      first_member = tmp;
+      last_member->next = tmp;
+      last_member = tmp;
     }
     i++;
   }
