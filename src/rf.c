@@ -292,7 +292,7 @@ void members() {
   bool search_mode = false;
   char *needle_buf = "", *send_s;
   int needle_idx = 0;
-  bool btm = false;
+  bool btm = false; // Hack to make scrolling work
   curr_line = 0;
   curr_scroll = 0;
   prefresh(padw, curr_scroll, 1, 3, 1, y, x-2);
@@ -332,7 +332,7 @@ void members() {
         mvprintw(1, 27, "%s", needle_buf);
       }
       break;
-    case KEY_DC:
+    case KEY_DC: // Delete
       if (!delete(needle_buf, curr_line))
         break;
       search(needle_buf, 0);
@@ -392,6 +392,9 @@ bool delete(char *needle, int dl) {
         strcasestr(curr->last_name, needle)) {
       if (i++ == dl) {
         prev->next = curr->next;
+        free(curr);
+        if (i == 1)
+          first_member = NULL;
         return true;
       }
     }
@@ -404,7 +407,6 @@ bool delete(char *needle, int dl) {
 void search(char *needle, int hl) {
   int i, y, x;
   member *curr = first_member;
-  //  char buff[70];
   getmaxyx(main_win, y, x);
   werase(padw);
   for (i = 0; curr != NULL;) {
@@ -413,8 +415,6 @@ void search(char *needle, int hl) {
       i == hl ? wattron(padw, A_REVERSE) : 0;
       mvwprintw(padw, i, 2, "%s %s", curr->first_name, curr->last_name);
       mvwprintw(padw, i, x - 26, "%s", asctime(localtime(&curr->timestamp)));
-      //      strftime(buff, sizeof(buff), "%X %F", localtime(&curr->timestamp));
-      //      mvwprintw(padw, i, x - 36, "%s", buff);
       i == hl ? wattroff(padw, A_REVERSE) : 0;
       i++;
     }
@@ -437,6 +437,14 @@ char *strstrip(char *str) {
 }
 
 void stats() {
+  /* TODO:
+   * New members today
+   * New members this semester
+   * Lifetime members
+   * Lifetime + this semester
+   * This semester so far compared to avg. spring/autumn semester
+   * Total revenue this semester and today
+   */
   int x, y, ch;
   char *s = "Her kommer statistikk.";
   getmaxyx(main_win, y, x);
@@ -502,6 +510,8 @@ member *parseline(char *line) {
   tmp->first_name = strdup(f_name);
   tmp->last_name = strdup(l_name);
   tmp->timestamp = ts;
+
+  free(line);
   return tmp;
 }
 

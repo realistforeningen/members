@@ -51,9 +51,9 @@ INCLUDES    =
 #INCLUDES   +=
 
 # libraries to link with
-LIBS        = -lncursesw
 LIBS       += -lpanelw
 LIBS       += -lformw
+LIBS        = -lncursesw
 
 # compiler
 CC          = clang
