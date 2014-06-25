@@ -2,6 +2,7 @@
 #define _X_OPEN_SOURCE_EXTENDED
 #include <locale.h>
 #include <string.h>
+#include <libssh/libssh.h>
 #include <stdlib.h>
 #include <time.h>
 #include <ncurses.h>
@@ -15,13 +16,14 @@ WINDOW *newwin(int height, int width, int starty, int startx);
 bool delete(char *needle, int dl);
 char *strstrip(char *str);
 int read_file();
+int get_lifetimers();
 void dump_to_file();
 void home();
 void members();
 void menu();
 void printmenu(WINDOW *mw, char **menu_s, int ML, int active);
 void reg();
-void register_member(char *f_name, char *l_name);
+void register_member(char *f_name, char *l_name, bool lifetime);
 int search(char *needle, int hl);
 void stats();
 void update_status_line();
@@ -30,19 +32,23 @@ typedef struct member {
   char *first_name;
   char *last_name;
   long int timestamp;
+  bool lifetime;
   struct member *next;
 } member;
+
+void insert_member(member *mmbr);
 
 const int PRICE = 50;
 const char *RF = "REALISTFORENINGEN";
 char* file_name= "members.csv";
-int num_members, num_members_today, curr_line, curr_scroll;
+int num_members, num_lifetimers, num_members_today, curr_line, curr_scroll;
 long int semstart;
 member *first_member = NULL, *last_member = NULL;
 PANEL *panels[5];
 WINDOW *main_win, *menu_win, *edit_win, *padw;
 
 int main() {
+  // Set up ncurses
   setlocale(LC_ALL, "");
   initscr();
   raw();
@@ -50,15 +56,16 @@ int main() {
   curs_set(0);
   noecho();
   clear();
-
   main_win = newwin(LINES - 2, COLS, 2, 0);
   keypad(main_win, true);
   refresh();
   box(main_win, 0, 0);
   wrefresh(main_win);
-  
   ESCDELAY = 0;
+  mvprintw(0, (COLS - strlen(RF)) / 2, RF);
+  mvprintw(1, 2, "Menu  Edit");
 
+  // Define start of semester
   time_t ts_now = time(NULL);
   struct tm *now = gmtime(&ts_now);
   now->tm_hour = 0;
@@ -68,10 +75,12 @@ int main() {
   now->tm_mon = now->tm_mon < 6 ? 0 : 6;
   semstart = (long int) mktime(now);
 
-  mvprintw(0, (COLS - strlen(RF)) / 2, RF);
-  mvprintw(1, 2, "Menu  Edit");
+  // Load members from file
   num_members = read_file();
+  //  num_lifetimers = get_lifetimers();
   update_status_line();
+
+  // Start main loop
   home();
   menu();
 
@@ -259,7 +268,7 @@ void reg() {
       l_name = strstrip(field_buffer(fields[1], 0));
       if (!(*f_name & *l_name))
         break; // Don't allow empty names
-      register_member(f_name, l_name);
+      register_member(f_name, l_name, false);
     case 27:
       hide_panel(panels[3]);
       //      if (ch == 27)
@@ -394,6 +403,8 @@ bool delete(char *needle, int dl) {
     if ((strcasestr(curr->first_name, needle) ||
         strcasestr(curr->last_name, needle)) && curr->timestamp > semstart) {
       if (i++ == dl) {
+        if (curr->lifetime)
+          return false; // Can't delete lifetimers
         prev->next = curr->next;
         if (prev->next == NULL) {
           last_member = prev;
@@ -469,13 +480,14 @@ void stats() {
   }
 }
 
-void register_member(char *f_name, char *l_name) {
+void register_member(char *f_name, char *l_name, bool lifetime) {
   member *tmp = (member *) malloc(sizeof(member));
   tmp->first_name = (char *) malloc(strlen(f_name) * sizeof(char));
   strcpy(tmp->first_name, f_name);
   tmp->last_name = (char *) malloc(strlen(l_name) * sizeof(char));
   strcpy(tmp->last_name, l_name);
   tmp->timestamp = time(NULL);
+  tmp->lifetime = lifetime;
   if (first_member == NULL) {
     first_member = last_member = tmp;
   } else {
@@ -497,8 +509,9 @@ void dump_to_file() {
   FILE *fp = fopen(file_name, "w");
   member *curr = first_member;
   while (curr != NULL) {
-    fprintf(fp, "%s,%s,%ld\n", curr->last_name,
-            curr->first_name, curr->timestamp);
+    if (!curr->lifetime)
+      fprintf(fp, "%s,%s,%ld\n", curr->last_name,
+              curr->first_name, curr->timestamp);
     curr = curr->next;
   }
   fclose(fp);
@@ -524,20 +537,96 @@ member *parseline(char *line) {
   return tmp;
 }
 
+int read_buffer(char *buffer) {
+  char *line = NULL;
+  int i = 0;
+  line = strtok(buffer, "\n");
+  while (line != NULL) {
+    insert_member(parseline(line));
+    line = strtok(NULL, "\n");
+    i++;
+  }
+  return i;
+}
+
+int get_lifetimers() {
+  ssh_session sshs = ssh_new();
+  ssh_scp scp;
+  int rc, size, num_lt_members;
+  char *password, *buffer;
+
+  if (sshs == NULL)
+    return -1;
+
+  // TODO Read host, user from config file
+  ssh_options_set(sshs, SSH_OPTIONS_HOST, "login.ifi.uio.no");
+  ssh_options_set(sshs, SSH_OPTIONS_USER, "rf");
+  rc = ssh_connect(sshs);
+  if (rc != SSH_OK) {
+    ssh_free(sshs);
+    return -1;
+  }
+
+  // TODO Authenticate server
+  // TODO Read password from user
+  password = "***REMOVED***";
+  rc = ssh_userauth_password(sshs, NULL, password);
+  if (rc != SSH_AUTH_SUCCESS) {
+    ssh_disconnect(sshs);
+    ssh_free(sshs);
+    return -1;
+  }
+
+  // TODO Read path from config file
+  scp = ssh_scp_new(sshs, SSH_SCP_READ, "Sekretos/.../livstid.csv");
+  if (scp == NULL) {
+    ssh_disconnect(sshs);
+    ssh_free(sshs);
+    return -1;
+  }
+  rc = ssh_scp_init(scp);
+  rc = ssh_scp_pull_request(scp);
+  size = ssh_scp_request_get_size(scp);
+  buffer = malloc(size);
+  //  filename = strdup(ssh_scp_request_get_filename(scp));
+  //  mode = ssh_scp_request_get_permissions(scp);
+
+  ssh_scp_accept_request(scp);
+  rc = ssh_scp_read(scp, buffer, size);
+
+  // TODO Write new 'parseline' to comply with format
+  num_lt_members = read_buffer(buffer);
+
+  free(buffer);
+  rc = ssh_scp_pull_request(scp);
+  if (rc != SSH_SCP_REQUEST_EOF) {
+    ssh_disconnect(sshs);
+    ssh_free(sshs);
+    return -1;
+  }
+  ssh_disconnect(sshs);
+  ssh_free(sshs);
+  return num_lt_members;
+}
+ 
 int read_file() {
   FILE *fp = fopen(file_name, "a+");
   char line[1024];
   int i = 0;
   while (fgets(line, 1024, fp)) {
     member *tmp = parseline(strdup(line));
-    if (first_member == NULL) {
-      first_member = last_member = tmp;
-    } else {
-      last_member->next = tmp;
-      last_member = tmp;
-    }
+    insert_member(tmp);
     i++;
   }
   fclose(fp);
   return i;
+}
+
+void insert_member(member *mmbr) {
+  if (first_member == NULL) {
+    first_member = last_member = mmbr;
+  } else {
+    last_member->next = mmbr;
+    last_member = mmbr;
+  }
 }

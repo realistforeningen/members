@@ -54,6 +54,7 @@ INCLUDES    =
 LIBS        = -lpanelw
 LIBS       += -lformw
 LIBS       += -lncursesw
+LIBS       += -lssh
 
 # compiler
 #CC          = $(shell if [ -z $$(which clang) ]; then echo gcc; else echo clang; fi)
