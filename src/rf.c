@@ -257,6 +257,8 @@ void reg() {
       form_driver(rf_form, REQ_NEXT_FIELD);
       f_name = strstrip(field_buffer(fields[0], 0));
       l_name = strstrip(field_buffer(fields[1], 0));
+      if (!(*f_name & *l_name))
+        break; // Don't allow empty names
       register_member(f_name, l_name);
     case 27:
       hide_panel(panels[3]);
