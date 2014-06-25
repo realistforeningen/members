@@ -339,6 +339,7 @@ void members() {
       num_members--;
       dump_to_file();
       update_status_line();
+      curr_line = 0;
       break;
     case 47:
       if (!search_mode) {
@@ -392,11 +393,14 @@ bool delete(char *needle, int dl) {
         strcasestr(curr->last_name, needle)) && curr->timestamp > semstart) {
       if (i++ == dl) {
         prev->next = curr->next;
-        if (prev->next == NULL)
+        if (prev->next == NULL) {
           last_member = prev;
-        free(curr);
-        if (i == 1)
-          first_member = last_member = NULL;
+          if (i == 1)
+            first_member = last_member = NULL;
+        } else {
+          if (i == 1)
+            first_member = prev->next;
+        }
         return true;
       }
     }
@@ -504,7 +508,7 @@ member *parseline(char *line) {
 
   l_name = strtok(line, ",");
   f_name = strtok(NULL, ",\n");
-  ts =  strtol(strtok(NULL, ",\n"), NULL, 10);
+  ts = strtol(strtok(NULL, ",\n"), NULL, 10);
 
   member *tmp = (member *) malloc(sizeof(member));
   tmp->first_name = (char *) malloc(strlen(f_name) * sizeof(char));
@@ -527,8 +531,6 @@ int read_file() {
     if (first_member == NULL) {
       first_member = last_member = tmp;
     } else {
-      //      tmp->next = first_member;
-      //      first_member = tmp;
       last_member->next = tmp;
       last_member = tmp;
     }
