@@ -55,6 +55,7 @@ LIBS        = -lpanelw
 LIBS       += -lformw
 LIBS       += -lncursesw
 LIBS       += -lssh
+LIBS       += -lsqlite3
 
 # compiler
 #CC          = $(shell if [ -z $$(which clang) ]; then echo gcc; else echo clang; fi)

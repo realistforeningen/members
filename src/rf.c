@@ -8,6 +8,7 @@
 #include <ncurses.h>
 #include <form.h>
 #include <panel.h>
+#include <sqlite3.h>
 
 int isspace(int ch);
 void destroy_win(WINDOW *local_win);
@@ -17,6 +18,7 @@ bool delete(char *needle, int dl);
 char *strstrip(char *str);
 int read_file();
 int get_lifetimers();
+void debug(char *msg);
 void dump_to_file();
 void home();
 void members();
@@ -41,7 +43,8 @@ void insert_member(member *mmbr);
 const int PRICE = 50;
 const char *RF = "REALISTFORENINGEN";
 char* file_name= "members.csv";
-int num_members, num_lifetimers, num_members_today, curr_line, curr_scroll;
+sqlite3 *db;
+int num_members, num_lifetimers, num_members_today, curr_line, curr_scroll, visible_members = 0;
 long int semstart;
 member *first_member = NULL, *last_member = NULL;
 PANEL *panels[5];
@@ -75,9 +78,17 @@ int main() {
   now->tm_mon = now->tm_mon < 6 ? 0 : 6;
   semstart = (long int) mktime(now);
 
+  // Open database
+  sqlite3_open("members.db", &db);
+  char *errmsg;
+  char *sql = "CREATE TABLE IF NOT EXISTS members\
+ (first_name NCHAR(50) NOT NULL, last_name NCHAR(50) NOT NULL,\
+ timestamp BIGINT NOT NULL)";
+  sqlite3_exec(db, sql, NULL, NULL, &errmsg);
+  //  debug(errmsg);
+
   // Load members from file
-  num_members = read_file();
-  //  num_lifetimers = get_lifetimers();
+  //  num_members = read_file();
   update_status_line();
 
   // Start main loop
@@ -299,7 +310,7 @@ void members() {
   update_panels();
   doupdate();
 
-  int visible_members = search("", 0);
+  search("", 0);
   bool search_mode = false;
   char *needle_buf = "", *send_s;
   int needle_idx = 0;
@@ -313,7 +324,7 @@ void members() {
       if (curr_line == visible_members - 1) {
         btm = false;
         break;}
-      visible_members = search(needle_buf, ++curr_line);
+      search(needle_buf, ++curr_line);
       if (curr_line == visible_members - 1 && btm)
         break;
       if (curr_line > y - 3)
@@ -327,7 +338,7 @@ void members() {
       }
       if (curr_line == visible_members - 1)
         btm = true;
-      visible_members = search(needle_buf, --curr_line);
+      search(needle_buf, --curr_line);
       if (curr_line < curr_scroll)
         prefresh(padw, --curr_scroll, 1, 3, 1, y, x-2);
       move(1, 27 + needle_idx);
@@ -337,7 +348,7 @@ void members() {
         needle_buf[--needle_idx] = '\0';
         send_s = (char *) malloc(needle_idx + 1);
         strncpy(send_s, needle_buf, needle_idx+1);
-        visible_members = search(send_s, curr_line = 0);
+        search(send_s, curr_line = 0);
         free(send_s);
         mvprintw(1, 26, "                         ");
         mvprintw(1, 27, "%s", needle_buf);
@@ -346,7 +357,7 @@ void members() {
     case KEY_DC: // Delete
       if (!delete(needle_buf, curr_line))
         break;
-      visible_members = search(needle_buf, 0);
+      search(needle_buf, 0);
       num_members--;
       dump_to_file();
       update_status_line();
@@ -369,7 +380,7 @@ void members() {
         needle_idx = 0;
         curs_set(0);
         werase(padw);
-        visible_members = search("", 0);
+        search("", 0);
         free(needle_buf);
         mvprintw(1, 19, "                                ");
         prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
@@ -386,7 +397,7 @@ void members() {
         needle_buf[needle_idx] = '\0';
         send_s = (char *) malloc(needle_idx + 1);
         strncpy(send_s, needle_buf, needle_idx + 1);
-        visible_members = search(send_s, 0);
+        search(send_s, 0);
         free(send_s);
         prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
         mvprintw(1, 26, " %s", needle_buf);
@@ -396,6 +407,7 @@ void members() {
 }
 
 bool delete(char *needle, int dl) {
+  // TODO Rewrite to SQL
   int i;
   member *curr = first_member;
   member *prev = first_member;
@@ -423,24 +435,28 @@ bool delete(char *needle, int dl) {
   return false;
 }
 
+static int search_callback(int *curr, int argc, char **member, char **colname) {
+  int x, y;
+  getmaxyx(main_win, y, x);
+  *curr == curr_line ? wattron(padw, A_REVERSE) : 0;
+  mvwprintw(padw, *curr, 2, "%s %s", member[0], member[1]);
+  long int ts = strtol(member[2], NULL, 10);
+  mvwprintw(padw, *curr, x - 26, "%s", asctime(localtime(&ts)));
+  (*curr)++ == curr_line ? wattroff(padw, A_REVERSE) : 0;
+  visible_members++;
+  return 0;
+}
+
 int search(char *needle, int hl) {
-  int i, y, x;
-  member *curr = first_member;
+  visible_members = 0;
+  char sqls[500];
+  int curr = 0, y, x;
   getmaxyx(main_win, y, x);
   werase(padw);
-  for (i = 0; curr != NULL;) {
-    if ((strcasestr(curr->first_name, needle) ||
-        strcasestr(curr->last_name, needle)) && curr->timestamp > semstart) {
-      i == hl ? wattron(padw, A_REVERSE) : 0;
-      mvwprintw(padw, i, 2, "%s %s", curr->first_name, curr->last_name);
-      mvwprintw(padw, i, x - 26, "%s", asctime(localtime(&curr->timestamp)));
-      i == hl ? wattroff(padw, A_REVERSE) : 0;
-      i++;
-    }
-    curr = curr->next;
-  }
+  sprintf(sqls, "SELECT * FROM members WHERE last_name LIKE '%%%s%%' OR first_name LIKE '%%%s%%'", needle, needle);
+  sqlite3_exec(db, sqls, &search_callback, &curr, 0);
   prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
-  return i;
+  return 0;
 }
 
 char *strstrip(char *str) {
@@ -480,8 +496,20 @@ void stats() {
   }
 }
 
+void debug(char *msg) {
+  mvprintw(0, 0, msg);
+  update_panels();
+  doupdate();
+}
+
 void register_member(char *f_name, char *l_name, bool lifetime) {
-  member *tmp = (member *) malloc(sizeof(member));
+  // TODO Rewrite to SQL
+  char sqls[500];
+  char *errmsg = 0;
+  sprintf(sqls, "INSERT INTO members (first_name, last_name, timestamp) VALUES ('%s', '%s', %ld)", f_name, l_name, time(NULL));
+  sqlite3_exec(db, sqls, 0, 0, &errmsg);
+  //  debug(errmsg);
+  /*  member *tmp = (member *) malloc(sizeof(member));
   tmp->first_name = (char *) malloc(strlen(f_name) * sizeof(char));
   strcpy(tmp->first_name, f_name);
   tmp->last_name = (char *) malloc(strlen(l_name) * sizeof(char));
@@ -494,7 +522,7 @@ void register_member(char *f_name, char *l_name, bool lifetime) {
     tmp->next = first_member;
     first_member = tmp;
   }
-  dump_to_file();
+  dump_to_file();*/
   num_members_today++;
   num_members++;
   update_status_line();
@@ -505,6 +533,7 @@ void update_status_line() {
            num_members_today * PRICE, num_members_today, num_members);
 }
 
+// Unnecessary with SQLite
 void dump_to_file() {
   FILE *fp = fopen(file_name, "w");
   member *curr = first_member;
@@ -517,6 +546,7 @@ void dump_to_file() {
   fclose(fp);
 }
 
+// Rewrite to match lifetimers
 member *parseline(char *line) {
   char *l_name, *f_name;
   long int ts;
@@ -608,7 +638,8 @@ int get_lifetimers() {
   ssh_free(sshs);
   return num_lt_members;
 }
- 
+
+// Unnecessary with SQLite
 int read_file() {
   FILE *fp = fopen(file_name, "a+");
   char line[1024];
@@ -622,6 +653,7 @@ int read_file() {
   return i;
 }
 
+// Unnecessary with SQLite
 void insert_member(member *mmbr) {
   if (first_member == NULL) {
     first_member = last_member = mmbr;
