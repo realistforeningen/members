@@ -222,7 +222,7 @@ void reg() {
   getmaxyx(main_win, y, x);
 
   for (i = 0; i < 2; i++) {
-    fields[i] = new_field(1, 25, 1 + i * 2, 12, 0, 0);    
+    fields[i] = new_field(1, 25, 1 + i * 2, 12, 0, 0);
     set_field_back(fields[i], A_UNDERLINE);
   }
   fields[2] = NULL;
@@ -467,7 +467,7 @@ void stats() {
   sprintf(sqls, "SELECT * FROM members WHERE timestamp > %ld",
           time(NULL)-86400);
   sqlite3_exec(db, sqls, &stats_callback, &last24, 0);
-  
+
   // Count this semester
   sprintf(sqls, "SELECT * FROM members WHERE timestamp > %ld",
           semstart);
@@ -542,29 +542,46 @@ void update_status_line() {
 }
 
 char *strtok2(char *line, char tok) {
-  char *tmp = line;
-  
-  while (*line != tok)
-    line++;
-  if (line == tmp)
-    line++;
+  char *tmp = strdup(line);
+  int i = 0;
+  while (*line != tok && *line != 0 && *line != '\n')
+    line++ + ++i;
+  if (*line == 0)
+    return NULL;
+  line++;
+  return strndup(tmp, i);
+}
 
-  tmp = "\0";
-
-  return tmp;
+int *sem2my(char *sem) {
+  int r[2];
+  char s = *sem++;
+  r[0] = s == 'h' && s == 'H' ? 6 : 0;
+  while (!isdigit(*sem))
+    sem++;
+  int year = atoi(sem);
+  r[1] = year < 70 ? 2000 + year : 1900 + year;
+  return r;
 }
 
 // Rewrite to match lifetimers
 int csv2reg(char *line) {
-  char *l_name, *f_name;
+  char *comment, *name, *sem;
   int num;
-  long int ts;
+  long int ts = 0;
 
-  num = atoi(strtok(line, ","));
-  comment = strtok(NULL, ",\n");
-  name = strtok(NULL, ",\n");
-  sem = strtok(NULL, ",\n");
-  
+  num = atoi(strtok2(line, ','));
+  comment = strtok2(line, ',');
+  name = strtok2(line, ',');
+  sem = strtok2(line, ',');
+  issued_by = strtok2(line, ',');
+
+  if (!isempty(sem)) {
+    struct tm *now = gmtime(0);
+    int *my_sem = sem2my(sem);
+    now->tm_year = my_sem[1];
+    now->tm_mon = my_sem[0];
+    ts = (long int) mktime(now);
+  }
 
   register_member(f_name, l_name, true, ts);
 
