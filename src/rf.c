@@ -14,7 +14,7 @@ int isspace(int ch);
 void destroy_win(WINDOW *local_win);
 WINDOW *newwin(int height, int width, int starty, int startx);
 
-bool delete(char *needle, int dl);
+bool delete(int dl);
 char *strstrip(char *str);
 int read_file();
 int get_lifetimers();
@@ -44,7 +44,8 @@ const int PRICE = 50;
 const char *RF = "REALISTFORENINGEN";
 char* file_name= "members.csv";
 sqlite3 *db;
-int num_members, num_lifetimers, num_members_today, curr_line, curr_scroll, visible_members = 0;
+int num_members, num_lifetimers, num_members_today, curr_line, curr_scroll;
+int delete_rowid = 0, visible_members = 0;
 long int semstart;
 member *first_member = NULL, *last_member = NULL;
 PANEL *panels[5];
@@ -355,13 +356,12 @@ void members() {
       }
       break;
     case KEY_DC: // Delete
-      if (!delete(needle_buf, curr_line))
+      if (!delete(delete_rowid))
         break;
-      search(needle_buf, 0);
-      num_members--;
-      dump_to_file();
       update_status_line();
       curr_line = 0;
+      search(needle_buf, 0);
+      num_members--;
       break;
     case 47:
       if (!search_mode) {
@@ -386,6 +386,7 @@ void members() {
         prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
         break;
       }
+      curr_line = 0;
       werase(padw);
       prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
       return;
@@ -406,43 +407,25 @@ void members() {
   }
 }
 
-bool delete(char *needle, int dl) {
-  // TODO Rewrite to SQL
-  int i;
-  member *curr = first_member;
-  member *prev = first_member;
-  for (i = 0; curr != NULL;) {
-    if ((strcasestr(curr->first_name, needle) ||
-        strcasestr(curr->last_name, needle)) && curr->timestamp > semstart) {
-      if (i++ == dl) {
-        if (curr->lifetime)
-          return false; // Can't delete lifetimers
-        prev->next = curr->next;
-        if (prev->next == NULL) {
-          last_member = prev;
-          if (i == 1)
-            first_member = last_member = NULL;
-        } else {
-          if (i == 1)
-            first_member = prev->next;
-        }
-        return true;
-      }
-    }
-    prev = curr;
-    curr = curr->next;
-  }
-  return false;
+bool delete(int dl) {
+  char sqls[50];
+  sprintf(sqls, "DELETE FROM members WHERE rowid == %d", dl);
+  sqlite3_exec(db, sqls, 0, 0, 0);
+  return true;
 }
 
 static int search_callback(int *curr, int argc, char **member, char **colname) {
   int x, y;
   getmaxyx(main_win, y, x);
-  *curr == curr_line ? wattron(padw, A_REVERSE) : 0;
+  if (*curr == curr_line)
+    wattron(padw, A_REVERSE);
   mvwprintw(padw, *curr, 2, "%s %s", member[0], member[1]);
   long int ts = strtol(member[2], NULL, 10);
   mvwprintw(padw, *curr, x - 26, "%s", asctime(localtime(&ts)));
-  (*curr)++ == curr_line ? wattroff(padw, A_REVERSE) : 0;
+  if ((*curr)++ == curr_line) {
+    wattroff(padw, A_REVERSE);
+    delete_rowid = atoi(member[3]);
+  }
   visible_members++;
   return 0;
 }
@@ -453,7 +436,7 @@ int search(char *needle, int hl) {
   int curr = 0, y, x;
   getmaxyx(main_win, y, x);
   werase(padw);
-  sprintf(sqls, "SELECT * FROM members WHERE last_name LIKE '%%%s%%' OR first_name LIKE '%%%s%%'", needle, needle);
+  sprintf(sqls, "SELECT first_name, last_name, timestamp, rowid FROM members WHERE last_name LIKE '%%%s%%' OR first_name LIKE '%%%s%%'", needle, needle);
   sqlite3_exec(db, sqls, &search_callback, &curr, 0);
   prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
   return 0;
@@ -508,21 +491,6 @@ void register_member(char *f_name, char *l_name, bool lifetime) {
   char *errmsg = 0;
   sprintf(sqls, "INSERT INTO members (first_name, last_name, timestamp) VALUES ('%s', '%s', %ld)", f_name, l_name, time(NULL));
   sqlite3_exec(db, sqls, 0, 0, &errmsg);
-  //  debug(errmsg);
-  /*  member *tmp = (member *) malloc(sizeof(member));
-  tmp->first_name = (char *) malloc(strlen(f_name) * sizeof(char));
-  strcpy(tmp->first_name, f_name);
-  tmp->last_name = (char *) malloc(strlen(l_name) * sizeof(char));
-  strcpy(tmp->last_name, l_name);
-  tmp->timestamp = time(NULL);
-  tmp->lifetime = lifetime;
-  if (first_member == NULL) {
-    first_member = last_member = tmp;
-  } else {
-    tmp->next = first_member;
-    first_member = tmp;
-  }
-  dump_to_file();*/
   num_members_today++;
   num_members++;
   update_status_line();
@@ -531,19 +499,6 @@ void register_member(char *f_name, char *l_name, bool lifetime) {
 void update_status_line() {
   mvprintw(1, COLS - 33, "NOK: %5d TDY: %5d TTL: %5d",
            num_members_today * PRICE, num_members_today, num_members);
-}
-
-// Unnecessary with SQLite
-void dump_to_file() {
-  FILE *fp = fopen(file_name, "w");
-  member *curr = first_member;
-  while (curr != NULL) {
-    if (!curr->lifetime)
-      fprintf(fp, "%s,%s,%ld\n", curr->last_name,
-              curr->first_name, curr->timestamp);
-    curr = curr->next;
-  }
-  fclose(fp);
 }
 
 // Rewrite to match lifetimers
