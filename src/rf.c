@@ -19,7 +19,6 @@ char *strstrip(char *str);
 int read_file();
 int get_lifetimers();
 void debug(char *msg);
-void dump_to_file();
 void home();
 void members();
 void menu();
@@ -30,24 +29,13 @@ int search(char *needle, int hl);
 void stats();
 void update_status_line();
 
-typedef struct member {
-  char *first_name;
-  char *last_name;
-  long int timestamp;
-  bool lifetime;
-  struct member *next;
-} member;
-
-void insert_member(member *mmbr);
-
 const int PRICE = 50;
-const char *RF = "REALISTFORENINGEN";
+const char *RF = "R E A L I S T F O R E N I N G E N";
 char* file_name= "members.csv";
 sqlite3 *db;
 int num_members, num_lifetimers, num_members_today, curr_line, curr_scroll;
 int delete_rowid = 0, visible_members = 0;
 long int semstart;
-member *first_member = NULL, *last_member = NULL;
 PANEL *panels[5];
 WINDOW *main_win, *menu_win, *edit_win, *padw;
 
@@ -436,7 +424,10 @@ int search(char *needle, int hl) {
   int curr = 0, y, x;
   getmaxyx(main_win, y, x);
   werase(padw);
-  sprintf(sqls, "SELECT first_name, last_name, timestamp, rowid FROM members WHERE last_name LIKE '%%%s%%' OR first_name LIKE '%%%s%%'", needle, needle);
+  sprintf(sqls, "SELECT first_name, last_name, timestamp, \
+rowid FROM members WHERE (last_name LIKE '%%%s%%' OR first_name \
+LIKE '%%%s%%') AND timestamp > %ld ORDER BY timestamp DESC",
+needle, needle, semstart);
   sqlite3_exec(db, sqls, &search_callback, &curr, 0);
   prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
   return 0;
@@ -455,21 +446,60 @@ char *strstrip(char *str) {
   return str;
 }
 
+static int stats_callback(int *n, int argc, char **member, char **colnames) {
+  (*n)++;
+  return 0;
+}
+
 void stats() {
   /* TODO:
-   * New members today
-   * New members this semester
-   * Lifetime members
-   * Lifetime + this semester
    * This semester so far compared to avg. spring/autumn semester
-   * Total revenue this semester and today
    */
-  int x, y, ch;
-  char *s = "Her kommer statistikk.";
+  int x, y, ch, last24 = 0, thissem = 0, lifetimers = 0, new_lifetimers = 0;
+  char sqls[500];
+  char tmp[500];
+
+  // Count last 24h
+  sprintf(sqls, "SELECT * FROM members WHERE timestamp > %ld", time(NULL)-86400);
+  sqlite3_exec(db, sqls, &stats_callback, &last24, 0);
+  
+  // Count this semester
+  sprintf(sqls, "SELECT * FROM members WHERE timestamp > %ld", semstart);
+  sqlite3_exec(db, sqls, &stats_callback, &thissem, 0);
+
+  // Count lifetimers
+  sqlite3_exec(db, "SELECT * FROM members WHERE lifetime == 1", &stats_callback, &lifetimers, 0);
+
+  // Count new lifetimers
+  sprintf(sqls, "SELECT * FROM members WHERE timestamp > %ld AND lifetime == 1", semstart);
+  sqlite3_exec(db, sqls, &stats_callback, &new_lifetimers, 0);
+
   getmaxyx(main_win, y, x);
   werase(main_win);
   box(main_win, 0, 0);
-  mvwprintw(main_win, y / 2, (x - strlen(s)) / 2, s);
+
+  int t = 10;
+
+  sprintf(tmp, "LAST 24 HOURS");
+  mvwprintw(main_win, t, (x - strlen(tmp)) / 2, tmp);
+  sprintf(tmp, "New members:   %8d", last24);
+  mvwprintw(main_win, t + 1, (x - strlen(tmp)) / 2, tmp);
+  sprintf(tmp, "Revenue (NOK): %8d", last24 * PRICE);
+  mvwprintw(main_win, t + 2, (x - strlen(tmp)) / 2, tmp);
+
+  sprintf(tmp, "THIS SEMESTER");
+  mvwprintw(main_win, t + 5, (x - strlen(tmp)) / 2, tmp);
+  sprintf(tmp, "Lifetimers:    %8d", lifetimers);
+  mvwprintw(main_win, t + 6, (x - strlen(tmp)) / 2, tmp);
+  sprintf(tmp, "New lifetimers:%8d", new_lifetimers);
+  mvwprintw(main_win, t + 7, (x - strlen(tmp)) / 2, tmp);
+  sprintf(tmp, "New members:   %8d", thissem);
+  mvwprintw(main_win, t + 8, (x - strlen(tmp)) / 2, tmp);
+  sprintf(tmp, "Total members: %8d", thissem + lifetimers);
+  mvwprintw(main_win, t + 9, (x - strlen(tmp)) / 2, tmp);
+  sprintf(tmp, "Revenue (NOK): %8d", thissem * PRICE + new_lifetimers * PRICE * 10);
+  mvwprintw(main_win, t + 10, (x - strlen(tmp)) / 2, tmp);
+
   wrefresh(main_win);
   for (;;) {
     switch (ch = getch()) {
@@ -502,7 +532,7 @@ void update_status_line() {
 }
 
 // Rewrite to match lifetimers
-member *parseline(char *line) {
+/*member *parseline(char *line) {
   char *l_name, *f_name;
   long int ts;
 
@@ -520,14 +550,14 @@ member *parseline(char *line) {
 
   free(line);
   return tmp;
-}
+  }*/
 
 int read_buffer(char *buffer) {
   char *line = NULL;
   int i = 0;
   line = strtok(buffer, "\n");
   while (line != NULL) {
-    insert_member(parseline(line));
+    //    insert_member(parseline(line));
     line = strtok(NULL, "\n");
     i++;
   }
@@ -592,28 +622,4 @@ int get_lifetimers() {
   ssh_disconnect(sshs);
   ssh_free(sshs);
   return num_lt_members;
-}
-
-// Unnecessary with SQLite
-int read_file() {
-  FILE *fp = fopen(file_name, "a+");
-  char line[1024];
-  int i = 0;
-  while (fgets(line, 1024, fp)) {
-    member *tmp = parseline(strdup(line));
-    insert_member(tmp);
-    i++;
-  }
-  fclose(fp);
-  return i;
-}
-
-// Unnecessary with SQLite
-void insert_member(member *mmbr) {
-  if (first_member == NULL) {
-    first_member = last_member = mmbr;
-  } else {
-    last_member->next = mmbr;
-    last_member = mmbr;
-  }
 }
