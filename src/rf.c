@@ -10,6 +10,7 @@
 #include <panel.h>
 #include <sqlite3.h>
 
+int isdigit(int ch);
 int isspace(int ch);
 void destroy_win(WINDOW *local_win);
 WINDOW *newwin(int height, int width, int starty, int startx);
@@ -19,6 +20,7 @@ char *strstrip(char *str);
 int read_file();
 int get_lifetimers();
 int csv2reg(char *line);
+int *sem2my(char *sem);
 void debug(char *msg);
 void home();
 void members();
@@ -544,8 +546,10 @@ void update_status_line() {
 char *strtok2(char *line, char tok) {
   char *tmp = strdup(line);
   int i = 0;
-  while (*line != tok && *line != 0 && *line != '\n')
-    line++ + ++i;
+  while (*line != tok && *line != 0 && *line != '\n') {
+    line++;
+    i++;
+  }
   if (*line == 0)
     return NULL;
   line++;
@@ -553,7 +557,7 @@ char *strtok2(char *line, char tok) {
 }
 
 int *sem2my(char *sem) {
-  int r[2];
+  int *r = malloc(sizeof(int) * 2);
   char s = *sem++;
   r[0] = s == 'h' && s == 'H' ? 6 : 0;
   while (!isdigit(*sem))
@@ -565,9 +569,10 @@ int *sem2my(char *sem) {
 
 // Rewrite to match lifetimers
 int csv2reg(char *line) {
-  char *comment, *name, *sem;
+  char *comment, *name, *sem, *issued_by;
   int num;
   long int ts = 0;
+  char ln[500];
 
   num = atoi(strtok2(line, ','));
   comment = strtok2(line, ',');
@@ -575,7 +580,7 @@ int csv2reg(char *line) {
   sem = strtok2(line, ',');
   issued_by = strtok2(line, ',');
 
-  if (!isempty(sem)) {
+  if (*sem == 0) {
     struct tm *now = gmtime(0);
     int *my_sem = sem2my(sem);
     now->tm_year = my_sem[1];
@@ -583,7 +588,9 @@ int csv2reg(char *line) {
     ts = (long int) mktime(now);
   }
 
-  register_member(f_name, l_name, true, ts);
+  sprintf(ln, "(%s)", comment);
+
+  register_member(name, ln, true, ts);
 
   free(line);
   return 0;
