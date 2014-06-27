@@ -18,13 +18,15 @@ bool delete(int dl);
 char *strstrip(char *str);
 int read_file();
 int get_lifetimers();
+int csv2reg(char *line);
 void debug(char *msg);
 void home();
 void members();
 void menu();
 void printmenu(WINDOW *mw, char **menu_s, int ML, int active);
 void reg();
-void register_member(char *f_name, char *l_name, bool lifetime);
+void register_member(char *f_name, char *l_name,
+                     bool lifetime, long int ts);
 int search(char *needle, int hl);
 void stats();
 void update_status_line();
@@ -33,7 +35,8 @@ const int PRICE = 50;
 const char *RF = "R E A L I S T F O R E N I N G E N";
 char* file_name= "members.csv";
 sqlite3 *db;
-int num_members, num_lifetimers, num_members_today, curr_line, curr_scroll;
+int num_members, num_lifetimers, num_members_today;
+int curr_line, curr_scroll;
 int delete_rowid = 0, visible_members = 0;
 long int semstart;
 PANEL *panels[5];
@@ -268,7 +271,7 @@ void reg() {
       l_name = strstrip(field_buffer(fields[1], 0));
       if (!(*f_name & *l_name))
         break; // Don't allow empty names
-      register_member(f_name, l_name, false);
+      register_member(f_name, l_name, false, time(NULL));
     case 27:
       hide_panel(panels[3]);
       //      if (ch == 27)
@@ -402,7 +405,8 @@ bool delete(int dl) {
   return true;
 }
 
-static int search_callback(int *curr, int argc, char **member, char **colname) {
+static int search_callback(int *curr, int argc,
+                           char **member, char **colname) {
   int x, y;
   getmaxyx(main_win, y, x);
   if (*curr == curr_line)
@@ -446,32 +450,36 @@ char *strstrip(char *str) {
   return str;
 }
 
-static int stats_callback(int *n, int argc, char **member, char **colnames) {
+static int stats_callback(int *n, int argc,
+                          char **member, char **colnames) {
   (*n)++;
   return 0;
 }
 
 void stats() {
-  /* TODO:
-   * This semester so far compared to avg. spring/autumn semester
-   */
-  int x, y, ch, last24 = 0, thissem = 0, lifetimers = 0, new_lifetimers = 0;
+  // TODO This semester so far compared to avg. spring/autumn semester
+  int x, y, ch, last24 = 0, thissem = 0;
+  int lifetimers = 0, new_lifetimers = 0;
   char sqls[500];
   char tmp[500];
 
   // Count last 24h
-  sprintf(sqls, "SELECT * FROM members WHERE timestamp > %ld", time(NULL)-86400);
+  sprintf(sqls, "SELECT * FROM members WHERE timestamp > %ld",
+          time(NULL)-86400);
   sqlite3_exec(db, sqls, &stats_callback, &last24, 0);
   
   // Count this semester
-  sprintf(sqls, "SELECT * FROM members WHERE timestamp > %ld", semstart);
+  sprintf(sqls, "SELECT * FROM members WHERE timestamp > %ld",
+          semstart);
   sqlite3_exec(db, sqls, &stats_callback, &thissem, 0);
 
   // Count lifetimers
-  sqlite3_exec(db, "SELECT * FROM members WHERE lifetime == 1", &stats_callback, &lifetimers, 0);
+  sqlite3_exec(db, "SELECT * FROM members WHERE lifetime == 1",
+               &stats_callback, &lifetimers, 0);
 
   // Count new lifetimers
-  sprintf(sqls, "SELECT * FROM members WHERE timestamp > %ld AND lifetime == 1", semstart);
+  sprintf(sqls, "SELECT * FROM members WHERE timestamp > %ld \
+AND lifetime == 1", semstart);
   sqlite3_exec(db, sqls, &stats_callback, &new_lifetimers, 0);
 
   getmaxyx(main_win, y, x);
@@ -497,7 +505,8 @@ void stats() {
   mvwprintw(main_win, t + 8, (x - strlen(tmp)) / 2, tmp);
   sprintf(tmp, "Total members: %8d", thissem + lifetimers);
   mvwprintw(main_win, t + 9, (x - strlen(tmp)) / 2, tmp);
-  sprintf(tmp, "Revenue (NOK): %8d", thissem * PRICE + new_lifetimers * PRICE * 10);
+  sprintf(tmp, "Revenue (NOK): %8d", thissem * PRICE
+          + new_lifetimers * PRICE * 10);
   mvwprintw(main_win, t + 10, (x - strlen(tmp)) / 2, tmp);
 
   wrefresh(main_win);
@@ -515,11 +524,12 @@ void debug(char *msg) {
   doupdate();
 }
 
-void register_member(char *f_name, char *l_name, bool lifetime) {
+void register_member(char *f_name, char *l_name, bool lifetime, long int ts) {
   // TODO Rewrite to SQL
   char sqls[500];
   char *errmsg = 0;
-  sprintf(sqls, "INSERT INTO members (first_name, last_name, timestamp) VALUES ('%s', '%s', %ld)", f_name, l_name, time(NULL));
+  sprintf(sqls, "INSERT INTO members (first_name, last_name, \
+timestamp) VALUES ('%s', '%s', %ld)", f_name, l_name, ts);
   sqlite3_exec(db, sqls, 0, 0, &errmsg);
   num_members_today++;
   num_members++;
@@ -531,26 +541,36 @@ void update_status_line() {
            num_members_today * PRICE, num_members_today, num_members);
 }
 
+char *strtok2(char *line, char tok) {
+  char *tmp = line;
+  
+  while (*line != tok)
+    line++;
+  if (line == tmp)
+    line++;
+
+  tmp = "\0";
+
+  return tmp;
+}
+
 // Rewrite to match lifetimers
-/*member *parseline(char *line) {
+int csv2reg(char *line) {
   char *l_name, *f_name;
+  int num;
   long int ts;
 
-  l_name = strtok(line, ",");
-  f_name = strtok(NULL, ",\n");
-  ts = strtol(strtok(NULL, ",\n"), NULL, 10);
+  num = atoi(strtok(line, ","));
+  comment = strtok(NULL, ",\n");
+  name = strtok(NULL, ",\n");
+  sem = strtok(NULL, ",\n");
+  
 
-  member *tmp = (member *) malloc(sizeof(member));
-  tmp->first_name = (char *) malloc(strlen(f_name) * sizeof(char));
-  tmp->last_name = (char *) malloc(strlen(l_name) * sizeof(char));
-
-  tmp->first_name = strdup(f_name);
-  tmp->last_name = strdup(l_name);
-  tmp->timestamp = ts;
+  register_member(f_name, l_name, true, ts);
 
   free(line);
-  return tmp;
-  }*/
+  return 0;
+  }
 
 int read_buffer(char *buffer) {
   char *line = NULL;
