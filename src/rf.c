@@ -546,7 +546,7 @@ void update_status_line() {
 char *strtok2(char *line, char tok) {
   char *tmp = strdup(line);
   int i = 0;
-  while (*line != tok && *line != 0 && *line != '\n') {
+  while (*line != tok && *line != 0) {
     line++;
     i++;
   }
@@ -567,7 +567,6 @@ int *sem2my(char *sem) {
   return r;
 }
 
-// Rewrite to match lifetimers
 int csv2reg(char *line) {
   char *comment, *name, *sem, *issued_by;
   int num;
@@ -601,7 +600,7 @@ int read_buffer(char *buffer) {
   int i = 0;
   line = strtok(buffer, "\n");
   while (line != NULL) {
-    //    insert_member(parseline(line));
+    csv2reg(line);
     line = strtok(NULL, "\n");
     i++;
   }
