@@ -11,42 +11,42 @@
 #include <sqlite3.h>
 #include <ctype.h>
 
+#define IN_BACKGROUND 1
+#define IN_FOREGROUND 0
+
 void destroy_win(WINDOW *local_win);
 WINDOW *newwin(int height, int width, int starty, int startx);
 
-int ssh_backup();
-void backup();
-bool delete(int dl);
+bool delete(int dl, int curr_scroll);
 bool dialog_sure();
 char *strstrip(char *str);
 int csv2reg(char *line);
-int read_file();
 int get_lifetimers();
-int search(char *needle, int hl);
+int search(char *needle, int hl, long period_begin, long period_end,
+           int *curr_line, int *visible_members, int *delete_rowid,
+           int curr_scroll);
+int ssh_backup();
 int *sem2my(char *sem);
+void backup();
 void debug(char *msg);
 void home();
-void members(bool bg);
-void menu();
+void members(int bg, long period_begin, long period_end, int *curr_scroll,
+             const int PRICE);
+void menu(long semstart, const int PRICE);
 void printmenu(WINDOW *mw, char **menu_s, int ML, int active);
-void reg();
-void register_member(char *f_name, char *l_name,
-                     bool lifetime, long int ts);
-void stats();
-void update_status_line();
+void reg(int curr_scroll, long semstart, const int PRICE);
+void register_member(char *f_name, char *l_name, bool lifetime, long ts,
+                     long semstart, const int PRICE);
+void stats(int bg, long semstart, const int PRICE);
 
-const int PRICE = 50;
-const char *RF = "R E A L I S T F O R E N I N G E N";
-char* file_name= "members.csv";
+// GLOBALS
 sqlite3 *db;
-int num_members, num_lifetimers, num_members_today;
-int curr_line, curr_scroll;
-int delete_rowid = 0, visible_members = 0;
-long int semstart;
 PANEL *panels[5];
-WINDOW *main_win, *menu_win, *edit_win, *padw;
+WINDOW *main_win, *padw;
 
 int main() {
+  const int PRICE = 50;
+  long semstart;
   // Set up ncurses
   setlocale(LC_ALL, "");
   initscr();
@@ -61,6 +61,7 @@ int main() {
   box(main_win, 0, 0);
   wrefresh(main_win);
   ESCDELAY = 0;
+  const char *RF = "R E A L I S T F O R E N I N G E N";
   mvprintw(0, (COLS - strlen(RF)) / 2, RF);
   mvprintw(1, 2, "Menu  Edit");
 
@@ -82,20 +83,22 @@ int main() {
  lifetime TINYINT, timestamp BIGINT NOT NULL)";
   sqlite3_exec(db, sql, NULL, NULL, &errmsg);
   //  debug(errmsg);
-  update_status_line();
+  stats(IN_BACKGROUND, semstart, PRICE);
 
   // Start main loop
   home();
-  menu();
+  menu(semstart, PRICE);
 
   endwin();
   return 0;
 }
 
-void menu() {
+void menu(long semstart, const int PRICE) {
   int active_y = 0, active_x = 0, i, ch, cur_menu_len;
   char **menu_s, **menu_e;
+  WINDOW *menu_win, *edit_win;
   const int MENU_LEN = 5, EDIT_MENU_LEN = 1;
+  int curr_scroll = 0, x, y;
 
   panels[0] = new_panel(main_win);
 
@@ -131,6 +134,7 @@ void menu() {
   box(edit_win, 0, 0);
 
   for (;;) {
+    getmaxyx(main_win, y, x);
     if (active_x == 0) {
       hide_panel(panels[4]);
       show_panel(panels[1]);
@@ -149,6 +153,7 @@ void menu() {
     case 27:
       if (dialog_sure())
         return;
+      prefresh(padw, curr_scroll, 1, 3, 1, y, x-2);
       break;
     case KEY_RIGHT:
     case KEY_LEFT:
@@ -167,17 +172,19 @@ void menu() {
         active_x ? backup() : home();
         break;
       case 1:
-        active_x ? 0 : reg();
+        active_x ? 0 : reg(curr_scroll, semstart, PRICE);
         break;
       case 2:
-        active_x ? 0 : members(false);
+        active_x ? 0 : members(IN_FOREGROUND, semstart, (long) time(NULL),
+                               &curr_scroll, PRICE);
         break;
       case 3:
-        stats();
+        stats(IN_FOREGROUND, semstart, PRICE);
         break;
       case 4:
         if (dialog_sure())
           return;
+        prefresh(padw, curr_scroll, 1, 3, 1, y, x-2);
       }
     }
   }
@@ -216,7 +223,7 @@ void home() {
   }
 }
 
-void reg() {
+void reg(int curr_scroll, long semstart, const int PRICE) {
   int x, y, ch, h = 15, wi = 50, i;
   FIELD *fields[3];
   FORM *rf_form;
@@ -276,8 +283,10 @@ void reg() {
       l_name = strstrip(field_buffer(fields[1], 0));
       if (!(*f_name & *l_name))
         break; // Don't allow empty names
-      register_member(f_name, l_name, false, time(NULL));
-      members(true);
+      register_member(f_name, l_name, false, time(NULL),
+                      semstart, PRICE);
+      members(IN_BACKGROUND, semstart, (long) time(NULL), &curr_scroll,
+              PRICE);
       prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
       box(formw, 0, 0);
       form_driver(rf_form, REQ_CLR_FIELD);
@@ -307,7 +316,8 @@ void reg() {
   }
 }
 
-void members(bool bg) {
+void members(int bg, long period_begin, long period_end, int *curr_scroll,
+             const int PRICE) {
   int x, y, ch;
   hide_panel(panels[1]);
   getmaxyx(main_win, y, x);
@@ -315,15 +325,16 @@ void members(bool bg) {
   box(main_win, 0, 0);
   update_panels();
   doupdate();
+  int needle_idx = 0, curr_line = 0, visible_members = 0;
+  int delete_rowid = 0;
 
-  search("", 0);
+  *curr_scroll = 0;
+  search("", 0, period_begin, period_end, &curr_line, &visible_members,
+         &delete_rowid, *curr_scroll);
   bool search_mode = false;
   char *needle_buf = "", *send_s;
-  int needle_idx = 0;
   bool btm = false; // Hack to make scrolling work
-  curr_line = 0;
-  curr_scroll = 0;
-  prefresh(padw, curr_scroll, 1, 3, 1, y, x-2);
+  prefresh(padw, *curr_scroll, 1, 3, 1, y, x-2);
   if (bg)
     return;
   for (;;) {
@@ -332,11 +343,12 @@ void members(bool bg) {
       if (curr_line == visible_members - 1) {
         btm = false;
         break;}
-      search(needle_buf, ++curr_line);
+      search(needle_buf, ++curr_line, period_begin, (long) time(NULL),
+             &curr_line, &visible_members, &delete_rowid, *curr_scroll);
       if (curr_line == visible_members - 1 && btm)
         break;
       if (curr_line > y - 3)
-        prefresh(padw, ++curr_scroll, 1, 3, 1, y, x-2);
+        prefresh(padw, ++(*curr_scroll), 1, 3, 1, y, x-2);
       move(1, 27 + needle_idx);
       break;
     case KEY_UP:
@@ -346,9 +358,10 @@ void members(bool bg) {
       }
       if (curr_line == visible_members - 1)
         btm = true;
-      search(needle_buf, --curr_line);
-      if (curr_line < curr_scroll)
-        prefresh(padw, --curr_scroll, 1, 3, 1, y, x-2);
+      search(needle_buf, --curr_line, period_begin, (long) time(NULL),
+             &curr_line, &visible_members, &delete_rowid, *curr_scroll);
+      if (curr_line < *curr_scroll)
+        prefresh(padw, --(*curr_scroll), 1, 3, 1, y, x-2);
       move(1, 27 + needle_idx);
       break;
     case KEY_BACKSPACE:
@@ -356,24 +369,25 @@ void members(bool bg) {
         needle_buf[--needle_idx] = '\0';
         send_s = (char *) malloc(needle_idx + 1);
         strncpy(send_s, needle_buf, needle_idx+1);
-        search(send_s, curr_line = 0);
+        search(send_s, curr_line = 0, period_begin, (long) time(NULL),
+               &curr_line, &visible_members, &delete_rowid, *curr_scroll);
         free(send_s);
         mvprintw(1, 26, "                         ");
         mvprintw(1, 27, "%s", needle_buf);
       }
       break;
     case KEY_DC: // Delete
-      if (!delete(delete_rowid))
+      if (!delete(delete_rowid, *curr_scroll))
         break;
-      update_status_line();
+      stats(IN_BACKGROUND, period_begin, PRICE);
       curr_line = 0;
-      search(needle_buf, 0);
-      num_members--;
+      search(needle_buf, 0, period_begin, (long) time(NULL), &curr_line,
+             &visible_members, &delete_rowid, *curr_scroll);
       break;
     case 47:
       if (!search_mode) {
         curr_line = 0;
-        curr_scroll = 0;
+        *curr_scroll = 0;
         search_mode = true;
         needle_buf = (char *) malloc(100);
         mvprintw(1, 19, "Search:");
@@ -387,14 +401,15 @@ void members(bool bg) {
         needle_idx = 0;
         curs_set(0);
         werase(padw);
-        search("", 0);
+        search("", 0, period_begin, (long) time(NULL), &curr_line,
+               &visible_members, &delete_rowid, *curr_scroll);
         free(needle_buf);
         mvprintw(1, 19, "                                ");
-        prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
+        prefresh(padw, *curr_scroll, 1, 3, 1, y, x - 2);
         break;
       }
       curr_line = 0;
-      prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
+      prefresh(padw, *curr_scroll, 1, 3, 1, y, x - 2);
       return;
     default:
       if (search_mode && needle_idx < 32) {
@@ -403,9 +418,10 @@ void members(bool bg) {
         needle_buf[needle_idx] = '\0';
         send_s = (char *) malloc(needle_idx + 1);
         strncpy(send_s, needle_buf, needle_idx + 1);
-        search(send_s, 0);
+        search(send_s, 0, period_begin, (long) time(NULL), &curr_line,
+               &visible_members, &delete_rowid, *curr_scroll);
         free(send_s);
-        prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
+        prefresh(padw, *curr_scroll, 1, 3, 1, y, x - 2);
         mvprintw(1, 26, " %s", needle_buf);
       }
     }
@@ -460,7 +476,7 @@ bool dialog_sure() {
   }
 }
 
-bool delete(int dl) {
+bool delete(int dl, int curr_scroll) {
   int x, y;
   getmaxyx(main_win, y, x);  
   if (!dialog_sure()) {
@@ -531,7 +547,14 @@ int ssh_backup(WINDOW *backupw) {
   ssh_scp scp;
   int rc, size, prev_tmp, line = 1;
   char *user, *domain, *password, *path, *buffer, tmp[300];
+  char *file_name;
   FILE *member_file;
+
+  // TODO Read this from rf.conf
+  user = "rf";
+  domain = "login.ifi.uio.no";
+  path = "Kjellerstyret/medlemsliste/";
+  file_name = "members.db";
 
   mvwprintw(backupw, line++, 2, "Starting backup ...");
   wrefresh(backupw);
@@ -539,9 +562,6 @@ int ssh_backup(WINDOW *backupw) {
   if (sshs == NULL)
     return -1;
 
-  // TODO Read host, user from config file
-  user = "rf";
-  domain = "login.ifi.uio.no";
   sprintf(tmp, "Connecting to %s@%s ...", user, domain);
   mvwprintw(backupw, line, 2, tmp);
   wrefresh(backupw);
@@ -591,8 +611,6 @@ int ssh_backup(WINDOW *backupw) {
   mvwprintw(backupw, line++, 2 + prev_tmp, tmp);
   wrefresh(backupw);
 
-  // TODO Read path from config file
-  path = "Kjellerstyret/medlemsliste/";
   sprintf(tmp, "Opening SCP connection to %s ...", path);
   mvwprintw(backupw, line, 2, tmp);
   wrefresh(backupw);
@@ -611,8 +629,6 @@ int ssh_backup(WINDOW *backupw) {
   // Assuming this file will never be bigger than 8 MiB
   buffer = malloc(0x800000);
 
-  // TODO Read file name from config file
-  file_name = "members.db";
   sprintf(tmp, "Reading %s ...", file_name);
   mvwprintw(backupw, line, 2, tmp);
   wrefresh(backupw);
@@ -646,35 +662,53 @@ int ssh_backup(WINDOW *backupw) {
   return 0;
 }
 
-static int search_callback(int *curr, int argc,
+int search_callback(void *vcurr, int argc,
                            char **member, char **colname) {
   int x, y;
+  int **vicurr = vcurr;
+  int *curr = vicurr[0];
+  int *curr_line = vicurr[1];
+  int *visible_members = vicurr[2];
+  int *delete_rowid = vicurr[3];
+  
   getmaxyx(main_win, y, x);
-  if (*curr == curr_line)
+  if (*curr == *curr_line)
     wattron(padw, A_REVERSE);
   mvwprintw(padw, *curr, 2, "%s %s", member[0], member[1]);
-  long int ts = strtol(member[2], NULL, 10);
+  long ts = strtol(member[2], NULL, 10);
   mvwprintw(padw, *curr, x - 26, "%s", asctime(localtime(&ts)));
-  if ((*curr)++ == curr_line) {
+  if ((*curr)++ == *curr_line) {
     wattroff(padw, A_REVERSE);
-    delete_rowid = atoi(member[3]);
+    *delete_rowid = atoi(member[3]);
   }
-  visible_members++;
+  (*visible_members)++;
   return 0;
 }
 
-int search(char *needle, int hl) {
-  visible_members = 0;
+int search(char *needle, int hl, long period_begin, long period_end,
+           int *curr_line, int *visible_members, int *delete_rowid,
+           int curr_scroll) {
+  *visible_members = 0;
   char sqls[500];
-  int curr = 0, y, x;
+  int **curr, y, x, *c;
+  curr = malloc(sizeof(int *)*4);
+  c = malloc(sizeof(int));
+  *c = 0;
+  curr[0] = c;
+  curr[1] = curr_line;
+  curr[2] = visible_members;
+  curr[3] = delete_rowid;
+
   getmaxyx(main_win, y, x);
   werase(padw);
   sprintf(sqls, "SELECT first_name, last_name, timestamp, \
 rowid FROM members WHERE (last_name LIKE '%%%s%%' OR first_name \
 LIKE '%%%s%%') AND timestamp > %ld ORDER BY timestamp DESC",
-needle, needle, semstart);
-  sqlite3_exec(db, sqls, &search_callback, &curr, 0);
+needle, needle, period_begin);
+  sqlite3_exec(db, sqls, &search_callback, curr, 0);
   prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
+  free(curr);
+  free(c);
   return 0;
 }
 
@@ -691,13 +725,14 @@ char *strstrip(char *str) {
   return str;
 }
 
-static int stats_callback(int *n, int argc,
+static int stats_callback(void *n, int argc,
                           char **member, char **colnames) {
-  (*n)++;
+  int *m = n;
+  (*m)++;
   return 0;
 }
 
-void stats() {
+void stats(int bg, long semstart, const int PRICE) {
   // TODO This semester so far compared to avg. spring/autumn semester
   int x, y, ch, last24 = 0, thissem = 0;
   int lifetimers = 0, new_lifetimers = 0;
@@ -722,6 +757,12 @@ void stats() {
   sprintf(sqls, "SELECT * FROM members WHERE timestamp > %ld \
 AND lifetime == 1", semstart);
   sqlite3_exec(db, sqls, &stats_callback, &new_lifetimers, 0);
+
+  if (bg == IN_BACKGROUND) {
+    mvprintw(1, COLS - 33, "NOK: %5d TDY: %5d TTL: %5d",
+             last24 * PRICE, last24, thissem);
+    return;
+  }
 
   getmaxyx(main_win, y, x);
   werase(main_win);
@@ -765,21 +806,15 @@ void debug(char *msg) {
   doupdate();
 }
 
-void register_member(char *f_name, char *l_name, bool lifetime, long int ts) {
+void register_member(char *f_name, char *l_name, bool lifetime, long int ts,
+                     long semstart, const int PRICE) {
   char sqls[500];
   char *errmsg = 0;
   sprintf(sqls, "INSERT INTO members (first_name, last_name, \
 lifetime, timestamp) VALUES ('%s', '%s', %d, %ld)", f_name, l_name,
           (int) lifetime, ts);
   sqlite3_exec(db, sqls, 0, 0, &errmsg);
-  num_members_today++;
-  num_members++;
-  update_status_line();
-}
-
-void update_status_line() {
-  mvprintw(1, COLS - 33, "NOK: %5d TDY: %5d TTL: %5d",
-           num_members_today * PRICE, num_members_today, num_members);
+  stats(IN_BACKGROUND, semstart,  PRICE);
 }
 
 char *strtok2(char *line, char tok) {
@@ -828,7 +863,7 @@ int csv2reg(char *line) {
 
   sprintf(ln, "(%s)", comment);
 
-  register_member(name, ln, true, ts);
+  //  register_member(name, ln, true, ts, PRICE);
 
   free(line);
   return 0;
@@ -846,10 +881,7 @@ int read_buffer(char *buffer) {
   return i;
 }
 
-int get_lifetimers() {
-  /*
-    UNTESTED !!!
-   */
+/*int get_lifetimers() {
   ssh_session sshs = ssh_new();
   ssh_scp scp;
   int rc, size, num_lt_members;
@@ -907,4 +939,4 @@ int get_lifetimers() {
   ssh_disconnect(sshs);
   ssh_free(sshs);
   return num_lt_members;
-}
+}*/
