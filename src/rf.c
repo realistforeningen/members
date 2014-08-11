@@ -17,6 +17,7 @@ WINDOW *newwin(int height, int width, int starty, int startx);
 int ssh_backup();
 void backup();
 bool delete(int dl);
+bool dialog_sure();
 char *strstrip(char *str);
 int csv2reg(char *line);
 int read_file();
@@ -81,9 +82,6 @@ int main() {
  lifetime TINYINT, timestamp BIGINT NOT NULL)";
   sqlite3_exec(db, sql, NULL, NULL, &errmsg);
   //  debug(errmsg);
-
-  // Load members from file
-  //  num_members = read_file();
   update_status_line();
 
   // Start main loop
@@ -97,7 +95,7 @@ int main() {
 void menu() {
   int active_y = 0, active_x = 0, i, ch, cur_menu_len;
   char **menu_s, **menu_e;
-  const int MENU_LEN = 5, EDIT_MENU_LEN = 3;
+  const int MENU_LEN = 5, EDIT_MENU_LEN = 1;
 
   panels[0] = new_panel(main_win);
 
@@ -113,8 +111,8 @@ void menu() {
   for (i = 0; i < EDIT_MENU_LEN; i++)
     menu_e[i] = malloc(sizeof(char) * 15);
   menu_e[0] = " Backup   ";
-  menu_e[1] = " N/A      ";
-  menu_e[2] = " N/A      ";
+  //  menu_e[1] = " N/A      ";
+  //  menu_e[2] = " N/A      ";
 
   // Windows for roll-down menus
   menu_win = newwin(MENU_LEN + 2, 12, 2, 0);
@@ -176,7 +174,8 @@ void menu() {
         stats();
         break;
       case 4:
-        return;
+        if (dialog_sure())
+          return;
       }
     }
   }
@@ -401,7 +400,57 @@ void members() {
   }
 }
 
+void print_y_n(WINDOW *w, int active) {
+  int y = 2, x = 3, i;
+  char *txt[] = {"    No    ", "    Yes   "};
+  for (i = 0; i < 2; i++) {
+    i == active ? wattron(w, A_REVERSE) : 0;
+    mvwprintw(w, y++, x, txt[i]);
+    i == active ? wattroff(w, A_REVERSE) : 0;
+  }
+  wrefresh(w);
+}
+
+bool dialog_sure() {
+  int x, y, ch, h = 2, wi = 13, active = 0;
+  WINDOW *dialogw;
+  getmaxyx(main_win, y, x);  
+
+  dialogw = newwin(h + 3, wi + 4, (y - h) / 2, (x - wi) / 2);
+  panels[3] = new_panel(dialogw);
+  update_panels();
+  doupdate();
+  box(dialogw, 0, 0);
+
+  mvwprintw(dialogw, 1, 2, "Are you sure?");
+  wrefresh(dialogw);
+  print_y_n(dialogw, active);
+  for (;;) {
+    switch (ch = getch()) {
+    case KEY_UP:
+    case KEY_DOWN:
+      print_y_n(dialogw, active = !active);
+      break;
+    case 121: // y
+    case 10:
+      if (active || ch == 121) {
+      hide_panel(panels[3]);
+      update_panels();
+      doupdate();
+      return true;
+      }
+    case 110: // n
+      hide_panel(panels[3]);
+      update_panels();
+      doupdate();
+      return false;
+    }
+  }
+}
+
 bool delete(int dl) {
+  if (!dialog_sure())
+    return false;
   char sqls[50];
   sprintf(sqls, "DELETE FROM members WHERE rowid == %d AND\
  lifetime == 0", dl);
@@ -781,6 +830,9 @@ int read_buffer(char *buffer) {
 }
 
 int get_lifetimers() {
+  /*
+    UNTESTED !!!
+   */
   ssh_session sshs = ssh_new();
   ssh_scp scp;
   int rc, size, num_lt_members;
@@ -800,7 +852,7 @@ int get_lifetimers() {
 
   // TODO Authenticate server
   // TODO Read password from user
-  password = "***REMOVED***";
+  //  password = get_password();
   rc = ssh_userauth_password(sshs, NULL, password);
   if (rc != SSH_AUTH_SUCCESS) {
     ssh_disconnect(sshs);
