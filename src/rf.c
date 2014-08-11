@@ -9,17 +9,19 @@
 #include <form.h>
 #include <panel.h>
 #include <sqlite3.h>
+#include <ctype.h>
 
-int isdigit(int ch);
-int isspace(int ch);
 void destroy_win(WINDOW *local_win);
 WINDOW *newwin(int height, int width, int starty, int startx);
 
+int ssh_backup();
+void backup();
 bool delete(int dl);
 char *strstrip(char *str);
+int csv2reg(char *line);
 int read_file();
 int get_lifetimers();
-int csv2reg(char *line);
+int search(char *needle, int hl);
 int *sem2my(char *sem);
 void debug(char *msg);
 void home();
@@ -29,7 +31,6 @@ void printmenu(WINDOW *mw, char **menu_s, int ML, int active);
 void reg();
 void register_member(char *f_name, char *l_name,
                      bool lifetime, long int ts);
-int search(char *needle, int hl);
 void stats();
 void update_status_line();
 
@@ -77,7 +78,7 @@ int main() {
   char *errmsg;
   char *sql = "CREATE TABLE IF NOT EXISTS members\
  (first_name NCHAR(50) NOT NULL, last_name NCHAR(50) NOT NULL,\
- timestamp BIGINT NOT NULL)";
+ lifetime TINYINT, timestamp BIGINT NOT NULL)";
   sqlite3_exec(db, sql, NULL, NULL, &errmsg);
   //  debug(errmsg);
 
@@ -163,7 +164,7 @@ void menu() {
     case 10:
       switch (active_y) {
       case 0:
-        active_x ? 0 : home();
+        active_x ? backup() : home();
         break;
       case 1:
         active_x ? 0 : reg();
@@ -402,9 +403,181 @@ void members() {
 
 bool delete(int dl) {
   char sqls[50];
-  sprintf(sqls, "DELETE FROM members WHERE rowid == %d", dl);
+  sprintf(sqls, "DELETE FROM members WHERE rowid == %d AND\
+ lifetime == 0", dl);
   sqlite3_exec(db, sqls, 0, 0, 0);
   return true;
+}
+
+void backup() {
+  int x, y, ch, h = 15, wi = 70;
+  WINDOW *backupw;
+  hide_panel(panels[1]);
+  getmaxyx(main_win, y, x);
+
+  backupw = newwin(h + 3, wi + 4, (y - h) / 2, (x - wi) / 2);
+  panels[3] = new_panel(backupw);
+  update_panels();
+  doupdate();
+  box(backupw, 0, 0);
+
+  ssh_backup(backupw);
+  ch = getch(); // Wait for any key
+
+  hide_panel(panels[3]);
+  update_panels();
+  doupdate();
+  return;
+}
+
+char *get_password(WINDOW *w, int y, int x) {
+  char *pass, *rf;
+  int ch, i = 0;
+  pass = malloc(sizeof(char)*30);
+  curs_set(1);
+  for (;;) {
+    switch (ch = getch()) {
+    case KEY_BACKSPACE:
+      if (i)
+        i--;
+      mvwprintw(w, y, x + i, " ");
+      wmove(w, y, x + i);
+      wrefresh(w);
+      break;
+    case 10:
+      curs_set(0);
+      pass[i] = '\0';
+      return pass;
+    default:
+      if (i > 30)
+        break;
+      pass[i] = ch;
+      rf = i % 2 ? "F" : "R";
+      mvwprintw(w, y, x + i++, rf);
+      wrefresh(w);
+      break;
+    }
+  }
+}
+
+int ssh_backup(WINDOW *backupw) {
+  ssh_session sshs = ssh_new();
+  ssh_scp scp;
+  int rc, size, prev_tmp, line = 1;
+  char *user, *domain, *password, *path, *buffer, tmp[300];
+  FILE *member_file;
+
+  mvwprintw(backupw, line++, 2, "Starting backup ...");
+  wrefresh(backupw);
+
+  if (sshs == NULL)
+    return -1;
+
+  // TODO Read host, user from config file
+  user = "rf";
+  domain = "login.ifi.uio.no";
+  sprintf(tmp, "Connecting to %s@%s ...", user, domain);
+  mvwprintw(backupw, line, 2, tmp);
+  wrefresh(backupw);
+  ssh_options_set(sshs, SSH_OPTIONS_HOST, domain);
+  ssh_options_set(sshs, SSH_OPTIONS_USER, user);
+  rc = ssh_connect(sshs);
+
+  prev_tmp = strlen(tmp);
+
+  if (rc != SSH_OK) {
+    ssh_free(sshs);
+    sprintf(tmp, " Could not connect.");
+    mvwprintw(backupw, line++, 2 + prev_tmp, tmp);
+    sprintf(tmp, "Check internet connection.");
+    mvwprintw(backupw, line, 2, tmp);
+    wrefresh(backupw);
+    return -1;
+  }
+
+  sprintf(tmp, " Connected!");
+  mvwprintw(backupw, line++, 2 + prev_tmp, tmp);
+  wrefresh(backupw);
+
+  // TODO Authenticate server
+  sprintf(tmp, "Enter password: ");
+  mvwprintw(backupw, line, 2, tmp);
+  wrefresh(backupw);
+  password = get_password(backupw, line, 18);
+
+  sprintf(tmp, "Authenticating ...");
+  mvwprintw(backupw, ++line, 2, tmp);
+  wrefresh(backupw);
+
+  prev_tmp = strlen(tmp);
+  rc = ssh_userauth_password(sshs, NULL, password);
+  if (rc != SSH_AUTH_SUCCESS) {
+    ssh_disconnect(sshs);
+    ssh_free(sshs);
+    sprintf(tmp, " Failed.");
+    mvwprintw(backupw, line++, 2 + prev_tmp, tmp);
+    sprintf(tmp, "Wrong password for user '%s'.", user);
+    mvwprintw(backupw, line, 2, tmp);
+    wrefresh(backupw);
+    return -1;
+  }
+  sprintf(tmp, " OK");
+  mvwprintw(backupw, line++, 2 + prev_tmp, tmp);
+  wrefresh(backupw);
+
+  // TODO Read path from config file
+  path = "Kjellerstyret/medlemsliste/";
+  sprintf(tmp, "Opening SCP connection to %s ...", path);
+  mvwprintw(backupw, line, 2, tmp);
+  wrefresh(backupw);
+  scp = ssh_scp_new(sshs, SSH_SCP_WRITE, path);
+  if (scp == NULL) {
+    ssh_disconnect(sshs);
+    ssh_free(sshs);
+    return -1;
+  }
+  rc = ssh_scp_init(scp);
+  prev_tmp = strlen(tmp);
+  sprintf(tmp, " Done!");
+  mvwprintw(backupw, line++, 2 + prev_tmp, tmp);
+  wrefresh(backupw);
+
+  // Assuming this file will never be bigger than 8 MiB
+  buffer = malloc(0x800000);
+
+  // TODO Read file name from config file
+  file_name = "members.db";
+  sprintf(tmp, "Reading %s ...", file_name);
+  mvwprintw(backupw, line, 2, tmp);
+  wrefresh(backupw);
+  member_file = fopen(file_name, "rb");
+  size = fread(buffer, 1, 0x800000, member_file);
+  prev_tmp = strlen(tmp);
+  sprintf(tmp, " Done!");
+  mvwprintw(backupw, line++, 2 + prev_tmp, tmp);
+  wrefresh(backupw);
+
+  sprintf(tmp, "Uploading ...");
+  mvwprintw(backupw, line, 2, tmp);
+  wrefresh(backupw);
+  rc = ssh_scp_push_file(scp, file_name, size, 0644);
+  rc = ssh_scp_write(scp, buffer, size);
+  if (rc != SSH_OK) {
+    // TODO Say so!
+    ssh_disconnect(sshs);
+    ssh_free(sshs);
+    return -1;
+  }
+  prev_tmp = strlen(tmp);
+  sprintf(tmp, " Done!");
+  mvwprintw(backupw, line++, 2 + prev_tmp, tmp);
+  wrefresh(backupw);
+  mvwprintw(backupw, line, 2, "Backup completed. Press any key.");
+  wrefresh(backupw);
+
+  ssh_disconnect(sshs);
+  ssh_free(sshs);
+  return 0;
 }
 
 static int search_callback(int *curr, int argc,
@@ -527,11 +700,11 @@ void debug(char *msg) {
 }
 
 void register_member(char *f_name, char *l_name, bool lifetime, long int ts) {
-  // TODO Rewrite to SQL
   char sqls[500];
   char *errmsg = 0;
   sprintf(sqls, "INSERT INTO members (first_name, last_name, \
-timestamp) VALUES ('%s', '%s', %ld)", f_name, l_name, ts);
+lifetime, timestamp) VALUES ('%s', '%s', %d, %ld)", f_name, l_name,
+          (int) lifetime, ts);
   sqlite3_exec(db, sqls, 0, 0, &errmsg);
   num_members_today++;
   num_members++;
