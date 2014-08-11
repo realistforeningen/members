@@ -26,7 +26,7 @@ int search(char *needle, int hl);
 int *sem2my(char *sem);
 void debug(char *msg);
 void home();
-void members();
+void members(bool bg);
 void menu();
 void printmenu(WINDOW *mw, char **menu_s, int ML, int active);
 void reg();
@@ -147,7 +147,9 @@ void menu() {
 
     switch (ch = getch()) {
     case 27:
-      return;
+      if (dialog_sure())
+        return;
+      break;
     case KEY_RIGHT:
     case KEY_LEFT:
       active_y = 0;
@@ -168,7 +170,7 @@ void menu() {
         active_x ? 0 : reg();
         break;
       case 2:
-        active_x ? 0 : members();
+        active_x ? 0 : members(false);
         break;
       case 3:
         stats();
@@ -241,6 +243,7 @@ void reg() {
   keypad(dwin, true);
   set_form_sub(rf_form, dwin);
   box(formw, 0, 0);
+  prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
   post_form(rf_form);
   mvwprintw(dwin, 1, 1, "  Fornavn:");
   mvwprintw(dwin, 3, 1, "Etternavn:");
@@ -274,18 +277,27 @@ void reg() {
       if (!(*f_name & *l_name))
         break; // Don't allow empty names
       register_member(f_name, l_name, false, time(NULL));
+      members(true);
+      prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
+      box(formw, 0, 0);
+      form_driver(rf_form, REQ_CLR_FIELD);
+      form_driver(rf_form, REQ_NEXT_FIELD);
+      form_driver(rf_form, REQ_CLR_FIELD);
+      form_driver(rf_form, REQ_NEXT_FIELD);
+      mvwprintw(dwin, 1, 1, "  Fornavn:");
+      mvwprintw(dwin, 3, 1, "Etternavn:");
+      wrefresh(formw);
+      break;
     case 27:
       hide_panel(panels[3]);
-      //      if (ch == 27)
-        //        show_panel(panels[1]);
       update_panels();
       doupdate();
-      //      prefresh(padw, curr_line, 1, 3, 1, y, x-2);
       unpost_form(rf_form);
       free_form(rf_form);
       curs_set(0);
       for (i = 0; i < 2; i++)
         free_field(fields[i]);
+      prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
       return;
     default:
       form_driver(rf_form, ch);
@@ -295,7 +307,7 @@ void reg() {
   }
 }
 
-void members() {
+void members(bool bg) {
   int x, y, ch;
   hide_panel(panels[1]);
   getmaxyx(main_win, y, x);
@@ -312,6 +324,8 @@ void members() {
   curr_line = 0;
   curr_scroll = 0;
   prefresh(padw, curr_scroll, 1, 3, 1, y, x-2);
+  if (bg)
+    return;
   for (;;) {
     switch (ch = getch()) {
     case KEY_DOWN:
@@ -380,11 +394,9 @@ void members() {
         break;
       }
       curr_line = 0;
-      werase(padw);
       prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
       return;
     default:
-      //      mvprintw(1, 19,"%d", ch);
       if (search_mode && needle_idx < 32) {
         werase(padw);
         needle_buf[needle_idx++] = (char) ch;
@@ -449,12 +461,17 @@ bool dialog_sure() {
 }
 
 bool delete(int dl) {
-  if (!dialog_sure())
+  int x, y;
+  getmaxyx(main_win, y, x);  
+  if (!dialog_sure()) {
+    prefresh(padw, curr_scroll, 1, 3, 1, y, x-2);
     return false;
+  }
   char sqls[50];
   sprintf(sqls, "DELETE FROM members WHERE rowid == %d AND\
  lifetime == 0", dl);
   sqlite3_exec(db, sqls, 0, 0, 0);
+  prefresh(padw, curr_scroll, 1, 3, 1, y, x-2);
   return true;
 }
 
