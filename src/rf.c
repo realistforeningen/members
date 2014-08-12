@@ -13,6 +13,8 @@
 
 #define IN_BACKGROUND 1
 #define IN_FOREGROUND 0
+#define WAIT          1
+#define NOWAIT        0
 
 void destroy_win(WINDOW *local_win);
 WINDOW *newwin(int height, int width, int starty, int startx);
@@ -29,19 +31,21 @@ int ssh_backup();
 int *sem2my(char *sem);
 void backup();
 void debug(char *msg);
-void home();
-void members(int bg, long period_begin, long period_end, int *curr_scroll,
-             const int PRICE);
+void home(int w);
+void members(int bg, long period_begin, long period_end,
+             int *curr_scroll, const int PRICE);
 void menu(long semstart, const int PRICE);
 void printmenu(WINDOW *mw, char **menu_s, int ML, int active);
+void refresh_bg(int prev_y, int curr_scroll, long semstart,
+                const int PRICE);
 void reg(int curr_scroll, long semstart, const int PRICE);
-void register_member(char *f_name, char *l_name, bool lifetime, long ts,
-                     long semstart, const int PRICE);
-void stats(int bg, long semstart, const int PRICE);
+void register_member(char *f_name, char *l_name, bool lifetime,
+                     long ts, long semstart, const int PRICE);
+void stats(int bg, long semstart, const int PRICE, int w);
 
 // GLOBALS
 sqlite3 *db;
-PANEL *panels[5];
+PANEL *panels[4];
 WINDOW *main_win, *padw;
 
 int main() {
@@ -62,8 +66,8 @@ int main() {
   wrefresh(main_win);
   ESCDELAY = 0;
   const char *RF = "R E A L I S T F O R E N I N G E N";
-  mvprintw(0, (COLS - strlen(RF)) / 2, RF);
-  mvprintw(1, 2, "Menu  Edit");
+  mvprintw(0, (COLS - strlen(RF)) >> 1, RF);
+  mvprintw(1, 2, "Menu");
 
   // Define start of semester
   time_t ts_now = time(NULL);
@@ -73,7 +77,7 @@ int main() {
   now->tm_sec = 0;
   now->tm_mday = 1;
   now->tm_mon = now->tm_mon < 6 ? 0 : 6;
-  semstart = (long int) mktime(now);
+  semstart = (long) mktime(now);
 
   // Open database
   sqlite3_open("members.db", &db);
@@ -83,10 +87,10 @@ int main() {
  lifetime TINYINT, timestamp BIGINT NOT NULL)";
   sqlite3_exec(db, sql, NULL, NULL, &errmsg);
   //  debug(errmsg);
-  stats(IN_BACKGROUND, semstart, PRICE);
+  stats(IN_BACKGROUND, semstart, PRICE, WAIT);
 
   // Start main loop
-  home();
+  home(WAIT);
   menu(semstart, PRICE);
 
   endwin();
@@ -94,13 +98,14 @@ int main() {
 }
 
 void menu(long semstart, const int PRICE) {
-  int active_y = 0, active_x = 0, i, ch, cur_menu_len;
-  char **menu_s, **menu_e;
-  WINDOW *menu_win, *edit_win;
-  const int MENU_LEN = 5, EDIT_MENU_LEN = 1;
+  int active_y = 0, prev_y = 0, i, ch;
+  char **menu_s;
+  WINDOW *menu_win;
+  const int MENU_LEN = 6;
   int curr_scroll = 0, x, y;
 
   panels[0] = new_panel(main_win);
+  //  panels[0] = new_panel(padw);
 
   menu_s = malloc(sizeof(char*) * MENU_LEN);
   for (i = 0; i < MENU_LEN; i++)
@@ -109,91 +114,88 @@ void menu(long semstart, const int PRICE) {
   menu_s[1] = " Register ";
   menu_s[2] = " Members  ";
   menu_s[3] = " Stats    ";
-  menu_s[4] = " Exit     ";
-  menu_e = malloc(sizeof(char*) * EDIT_MENU_LEN);
-  for (i = 0; i < EDIT_MENU_LEN; i++)
-    menu_e[i] = malloc(sizeof(char) * 15);
-  menu_e[0] = " Backup   ";
-  //  menu_e[1] = " N/A      ";
-  //  menu_e[2] = " N/A      ";
+  menu_s[4] = " Backup   ";
+  menu_s[5] = " Exit     ";
 
   // Windows for roll-down menus
   menu_win = newwin(MENU_LEN + 2, 12, 2, 0);
   panels[1] = new_panel(menu_win);
-  edit_win = newwin(EDIT_MENU_LEN + 2, 12, 2, 6);
-  panels[4] = new_panel(edit_win);
 
   padw = newpad(5000, COLS - 2);
   panels[2] = new_panel(padw);
-  update_panels();
-  doupdate();
 
+  getmaxyx(main_win, y, x);
   keypad(menu_win, true);
   box(menu_win, 0, 0);
-  keypad(edit_win, true);
-  box(edit_win, 0, 0);
 
   for (;;) {
     getmaxyx(main_win, y, x);
-    if (active_x == 0) {
-      hide_panel(panels[4]);
-      show_panel(panels[1]);
-      printmenu(menu_win, menu_s, MENU_LEN, active_y);
-      cur_menu_len = MENU_LEN;
-    } else {
-      hide_panel(panels[1]);
-      show_panel(panels[4]);
-      printmenu(edit_win, menu_e, EDIT_MENU_LEN, active_y);
-      cur_menu_len = EDIT_MENU_LEN;
-    }
+    show_panel(panels[1]);
+    printmenu(menu_win, menu_s, MENU_LEN, active_y);
     update_panels();
     doupdate();
-
+    
     switch (ch = getch()) {
     case 27:
       if (dialog_sure())
         return;
       prefresh(padw, curr_scroll, 1, 3, 1, y, x-2);
       break;
-    case KEY_RIGHT:
-    case KEY_LEFT:
-      active_y = 0;
-      active_x = active_x == 0 ? 1 : 0;
-      break;
     case KEY_UP:
-      active_y == 0 ? active_y = cur_menu_len - 1 : active_y--;
+      active_y == 0 ? active_y = MENU_LEN - 1 : active_y--;
       break;
     case KEY_DOWN:
-      active_y == cur_menu_len - 1 ? active_y = 0 : active_y++;
+      active_y == MENU_LEN - 1 ? active_y = 0 : active_y++;
       break;
     case 10:
       switch (active_y) {
       case 0:
-        active_x ? backup() : home();
+        home(WAIT);
         break;
       case 1:
-        active_x ? 0 : reg(curr_scroll, semstart, PRICE);
+        reg(curr_scroll, semstart, PRICE);
         break;
       case 2:
-        active_x ? 0 : members(IN_FOREGROUND, semstart, (long) time(NULL),
-                               &curr_scroll, PRICE);
+        members(IN_FOREGROUND, semstart, (long) time(NULL),
+                &curr_scroll, PRICE);
         break;
       case 3:
-        stats(IN_FOREGROUND, semstart, PRICE);
+        stats(IN_FOREGROUND, semstart, PRICE, WAIT);
         break;
       case 4:
+        backup();
+        refresh_bg(prev_y, curr_scroll, semstart, PRICE);
+        break;
+      case 5:
         if (dialog_sure())
           return;
-        prefresh(padw, curr_scroll, 1, 3, 1, y, x-2);
+        refresh_bg(prev_y, curr_scroll, semstart, PRICE);
       }
+      prev_y = active_y != 1 && active_y != 4
+        && active_y != 5 ? active_y : prev_y;
     }
   }
   for (i = 0; i < MENU_LEN; i++)
     free(menu_s[i]);
   free(menu_s);
-  for (i = 0; i < EDIT_MENU_LEN; i++)
-    free(menu_e[i]);
-  free(menu_e);
+}
+
+void refresh_bg(int prev_y, int curr_scroll, long semstart,
+                const int PRICE) {
+  int x, y;
+  getmaxyx(main_win, y, x);
+  switch (prev_y) {
+  case 0:
+    home(NOWAIT);
+    break;
+  case 1:
+  case 2:
+    prefresh(padw, curr_scroll, 1, 3, 1, y, x-2);
+    break;
+  case 3:
+    stats(IN_FOREGROUND, semstart, PRICE, NOWAIT);
+    break;
+  }
 }
 
 void printmenu(WINDOW *mw, char **menu_s, int ML, int active) {
@@ -204,17 +206,39 @@ void printmenu(WINDOW *mw, char **menu_s, int ML, int active) {
     mvwprintw(mw, y++, x, menu_s[i]);
     i == active ? wattroff(mw, A_REVERSE) : 0;
   }
+  wrefresh(mw);
 }
 
-void home() {
+void home(int w) {
   // TODO dancing bear
+  int i;
+  char *bear[10];
   int x, y, ch;
+
   getmaxyx(main_win, y, x);
-  char *s = "Dette er Realistforeningens medlemsliste.";
   werase(main_win);
   box(main_win, 0, 0);
-  mvwprintw(main_win, y / 2, (x - strlen(s)) / 2, s);
+
+  bear[0] = "      _____        _";
+  bear[1] = "    d8888888b.   d888b   ,db";
+  bear[2] = "   d888888888888888888888888.*";
+  bear[3] = "  888888 88888888888 88 8888888o";
+  bear[4] = "  8888888 888888888 8888 8888`~~";
+  bear[5] = "  8888888 888888888 88888";
+  bear[6] = "   888888 8888888888 8888";
+  bear[7] = "  ## 88888  88888 ##  8888";
+  bear[8] = " #### 88888      ###   8888";
+  bear[9] = "###,,, 888,,,    ##,,,  88,,,";
+
+  for (i = 0; i < 10; i++)
+    mvwprintw(main_win, (y >> 1) - 7 + i,
+              (x - strlen(bear[3])) >> 1, bear[i]);
+
+  char *s = "Dette er Realistforeningens medlemsliste.";
+  mvwprintw(main_win, (y >> 1) - 6 + i, (x - strlen(s)) >> 1, s);
   wrefresh(main_win);
+  if (NOWAIT)
+    return;
   for (;;) {
     switch (ch = getch()) {
     case 27:
@@ -240,7 +264,7 @@ void reg(int curr_scroll, long semstart, const int PRICE) {
 
   rf_form = new_form(fields);
   scale_form(rf_form, &h, &wi);
-  formw = newwin(h + 3, wi + 4, (y - h) / 2, (x - wi) / 2);
+  formw = newwin(h + 3, wi + 4, (y - h) >> 1, (x - wi) >> 1);
   panels[3] = new_panel(formw);
   update_panels();
   doupdate();
@@ -379,7 +403,7 @@ void members(int bg, long period_begin, long period_end, int *curr_scroll,
     case KEY_DC: // Delete
       if (!delete(delete_rowid, *curr_scroll))
         break;
-      stats(IN_BACKGROUND, period_begin, PRICE);
+      stats(IN_BACKGROUND, period_begin, PRICE, WAIT);
       curr_line = 0;
       search(needle_buf, 0, period_begin, (long) time(NULL), &curr_line,
              &visible_members, &delete_rowid, *curr_scroll);
@@ -430,7 +454,7 @@ void members(int bg, long period_begin, long period_end, int *curr_scroll,
 
 void print_y_n(WINDOW *w, int active) {
   int y = 2, x = 3, i;
-  char *txt[] = {"    No    ", "    Yes   "};
+  char *txt[] = {"    No     ", "    Yes    "};
   for (i = 0; i < 2; i++) {
     i == active ? wattron(w, A_REVERSE) : 0;
     mvwprintw(w, y++, x, txt[i]);
@@ -444,7 +468,7 @@ bool dialog_sure() {
   WINDOW *dialogw;
   getmaxyx(main_win, y, x);  
 
-  dialogw = newwin(h + 3, wi + 4, (y - h) / 2, (x - wi) / 2);
+  dialogw = newwin(h + 3, wi + 4, (y - h) >> 1, (x - wi) >> 1);
   panels[3] = new_panel(dialogw);
   update_panels();
   doupdate();
@@ -497,7 +521,7 @@ void backup() {
   hide_panel(panels[1]);
   getmaxyx(main_win, y, x);
 
-  backupw = newwin(h + 3, wi + 4, (y - h) / 2, (x - wi) / 2);
+  backupw = newwin(h + 3, wi + 4, (y - h) >> 1, (x - wi) >> 1);
   panels[3] = new_panel(backupw);
   update_panels();
   doupdate();
@@ -610,6 +634,7 @@ int ssh_backup(WINDOW *backupw) {
   sprintf(tmp, " OK");
   mvwprintw(backupw, line++, 2 + prev_tmp, tmp);
   wrefresh(backupw);
+  free(password);
 
   sprintf(tmp, "Opening SCP connection to %s ...", path);
   mvwprintw(backupw, line, 2, tmp);
@@ -657,6 +682,7 @@ int ssh_backup(WINDOW *backupw) {
   mvwprintw(backupw, line, 2, "Backup completed. Press any key.");
   wrefresh(backupw);
 
+  free(buffer);
   ssh_disconnect(sshs);
   ssh_free(sshs);
   return 0;
@@ -732,7 +758,7 @@ static int stats_callback(void *n, int argc,
   return 0;
 }
 
-void stats(int bg, long semstart, const int PRICE) {
+void stats(int bg, long semstart, const int PRICE, int w) {
   // TODO This semester so far compared to avg. spring/autumn semester
   int x, y, ch, last24 = 0, thissem = 0;
   int lifetimers = 0, new_lifetimers = 0;
@@ -771,27 +797,29 @@ AND lifetime == 1", semstart);
   int t = 10;
 
   sprintf(tmp, "LAST 24 HOURS");
-  mvwprintw(main_win, t, (x - strlen(tmp)) / 2, tmp);
+  mvwprintw(main_win, t, (x - strlen(tmp)) >> 1, tmp);
   sprintf(tmp, "New members:   %8d", last24);
-  mvwprintw(main_win, t + 1, (x - strlen(tmp)) / 2, tmp);
+  mvwprintw(main_win, t + 1, (x - strlen(tmp)) >> 1, tmp);
   sprintf(tmp, "Revenue (NOK): %8d", last24 * PRICE);
-  mvwprintw(main_win, t + 2, (x - strlen(tmp)) / 2, tmp);
+  mvwprintw(main_win, t + 2, (x - strlen(tmp)) >> 1, tmp);
 
   sprintf(tmp, "THIS SEMESTER");
-  mvwprintw(main_win, t + 5, (x - strlen(tmp)) / 2, tmp);
+  mvwprintw(main_win, t + 5, (x - strlen(tmp)) >> 1, tmp);
   sprintf(tmp, "Lifetimers:    %8d", lifetimers);
-  mvwprintw(main_win, t + 6, (x - strlen(tmp)) / 2, tmp);
+  mvwprintw(main_win, t + 6, (x - strlen(tmp)) >> 1, tmp);
   sprintf(tmp, "New lifetimers:%8d", new_lifetimers);
-  mvwprintw(main_win, t + 7, (x - strlen(tmp)) / 2, tmp);
+  mvwprintw(main_win, t + 7, (x - strlen(tmp)) >> 1, tmp);
   sprintf(tmp, "New members:   %8d", thissem);
-  mvwprintw(main_win, t + 8, (x - strlen(tmp)) / 2, tmp);
+  mvwprintw(main_win, t + 8, (x - strlen(tmp)) >> 1, tmp);
   sprintf(tmp, "Total members: %8d", thissem + lifetimers);
-  mvwprintw(main_win, t + 9, (x - strlen(tmp)) / 2, tmp);
+  mvwprintw(main_win, t + 9, (x - strlen(tmp)) >> 1, tmp);
   sprintf(tmp, "Revenue (NOK): %8d", thissem * PRICE
           + new_lifetimers * PRICE * 10);
-  mvwprintw(main_win, t + 10, (x - strlen(tmp)) / 2, tmp);
+  mvwprintw(main_win, t + 10, (x - strlen(tmp)) >> 1, tmp);
 
   wrefresh(main_win);
+  if (NOWAIT)
+    return;
   for (;;) {
     switch (ch = getch()) {
     case 27:
@@ -806,7 +834,7 @@ void debug(char *msg) {
   doupdate();
 }
 
-void register_member(char *f_name, char *l_name, bool lifetime, long int ts,
+void register_member(char *f_name, char *l_name, bool lifetime, long ts,
                      long semstart, const int PRICE) {
   char sqls[500];
   char *errmsg = 0;
@@ -814,7 +842,7 @@ void register_member(char *f_name, char *l_name, bool lifetime, long int ts,
 lifetime, timestamp) VALUES ('%s', '%s', %d, %ld)", f_name, l_name,
           (int) lifetime, ts);
   sqlite3_exec(db, sqls, 0, 0, &errmsg);
-  stats(IN_BACKGROUND, semstart,  PRICE);
+  stats(IN_BACKGROUND, semstart, PRICE, NOWAIT);
 }
 
 char *strtok2(char *line, char tok) {
@@ -844,7 +872,7 @@ int *sem2my(char *sem) {
 int csv2reg(char *line) {
   char *comment, *name, *sem, *issued_by;
   int num;
-  long int ts = 0;
+  long ts = 0;
   char ln[500];
 
   num = atoi(strtok2(line, ','));
@@ -858,7 +886,7 @@ int csv2reg(char *line) {
     int *my_sem = sem2my(sem);
     now->tm_year = my_sem[1];
     now->tm_mon = my_sem[0];
-    ts = (long int) mktime(now);
+    ts = (long) mktime(now);
   }
 
   sprintf(ln, "(%s)", comment);
