@@ -16,41 +16,50 @@
 #define WAIT          1
 #define NOWAIT        0
 
-void destroy_win(WINDOW *local_win);
-WINDOW *newwin(int height, int width, int starty, int startx);
-
-bool delete(int dl, int curr_scroll);
-bool dialog_sure();
+bool delete(sqlite3 *db, WINDOW *main_win, PANEL **panels, int dl);
+bool dialog_sure(WINDOW *main_win, PANEL **panels);
 char *strstrip(char *str);
 int csv2reg(char *line);
 int get_lifetimers();
-int search(char *needle, int hl, long period_begin, long period_end,
+int search(sqlite3 *db, WINDOW *main_win, WINDOW *padw,
+           char *needle, int hl, long period_begin, long period_end,
            int *curr_line, int *visible_members, int *delete_rowid,
            int curr_scroll);
 int ssh_backup();
 int *sem2my(char *sem);
-void backup();
+void backup(WINDOW *main_win, PANEL **panels);
 void debug(char *msg);
-void home(int w);
-void members(int bg, long period_begin, long period_end,
+void home(WINDOW *main_win, int w);
+void member_help();
+void members(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
+             int bg, long period_begin, long period_end,
              int *curr_scroll, const int PRICE);
-void menu(long semstart, const int PRICE);
+void menu(sqlite3 *db, WINDOW *main_win,
+          PANEL **panels, long semstart, const int PRICE);
+void print_y_n(WINDOW *w, int active);
 void printmenu(WINDOW *mw, char **menu_s, int ML, int active);
-void refresh_bg(int prev_y, int curr_scroll, long semstart,
-                const int PRICE);
-void reg(int curr_scroll, long semstart, const int PRICE);
-void register_member(char *f_name, char *l_name, bool lifetime,
-                     long ts, long semstart, const int PRICE);
-void stats(int bg, long semstart, const int PRICE, int w);
+void refresh_bg(sqlite3 *db, WINDOW *main_win, WINDOW *padw, int prev_y,
+                int curr_scroll, long semstart, const int PRICE);
+void reg(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
+         int curr_scroll, long semstart, const int PRICE);
+void register_member(sqlite3 *db, WINDOW *main_win, char *f_name,
+                     char *l_name, bool lifetime, long ts, long semstart,
+                     const int PRICE);
+void stats(sqlite3 *db, WINDOW *main_win, int bg, long semstart,
+           const int PRICE, int w);
 
-// GLOBALS
-sqlite3 *db;
-PANEL *panels[4];
-WINDOW *main_win, *padw;
+typedef struct {
+  WINDOW *padw;
+  int *curr, *curr_line, *visible_members, *delete_rowid;
+} callback_container;
 
 int main() {
   const int PRICE = 50;
   long semstart;
+  WINDOW *main_win;
+  sqlite3 *db;
+  PANEL *panels[4];
+
   // Set up ncurses
   setlocale(LC_ALL, "");
   initscr();
@@ -66,8 +75,10 @@ int main() {
   wrefresh(main_win);
   ESCDELAY = 0;
   const char *RF = "R E A L I S T F O R E N I N G E N";
+  attron(A_BOLD);
   mvprintw(0, (COLS - strlen(RF)) >> 1, RF);
   mvprintw(1, 2, "Menu");
+  attroff(A_BOLD);
 
   // Define start of semester
   time_t ts_now = time(NULL);
@@ -77,7 +88,7 @@ int main() {
   now->tm_sec = 0;
   now->tm_mday = 1;
   now->tm_mon = now->tm_mon < 6 ? 0 : 6;
-  semstart = (long) mktime(now);
+  semstart = mktime(now);
 
   // Open database
   sqlite3_open("members.db", &db);
@@ -87,35 +98,33 @@ int main() {
  lifetime TINYINT, timestamp BIGINT NOT NULL)";
   sqlite3_exec(db, sql, NULL, NULL, &errmsg);
   //  debug(errmsg);
-  stats(IN_BACKGROUND, semstart, PRICE, WAIT);
+  stats(db, main_win, IN_BACKGROUND, semstart, PRICE, WAIT);
 
   // Start main loop
-  home(WAIT);
-  menu(semstart, PRICE);
+  home(main_win, WAIT);
+  menu(db, main_win, panels, semstart, PRICE);
 
+  delwin(main_win);
   endwin();
   return 0;
 }
 
-void menu(long semstart, const int PRICE) {
-  int active_y = 0, prev_y = 0, i, ch;
+void menu(sqlite3 *db, WINDOW *main_win,
+          PANEL **panels, long semstart, const int PRICE) {
+  int active_y = 0, prev_y = 0, ch;
   char **menu_s;
-  WINDOW *menu_win;
-  const int MENU_LEN = 6;
+  WINDOW *menu_win, *padw;
+  const int MENU_LEN = 5;
   int curr_scroll = 0, x, y;
 
   panels[0] = new_panel(main_win);
-  //  panels[0] = new_panel(padw);
 
   menu_s = malloc(sizeof(char*) * MENU_LEN);
-  for (i = 0; i < MENU_LEN; i++)
-    menu_s[i] = malloc(sizeof(char) * 15);
   menu_s[0] = " Home     ";
-  menu_s[1] = " Register ";
-  menu_s[2] = " Members  ";
-  menu_s[3] = " Stats    ";
-  menu_s[4] = " Backup   ";
-  menu_s[5] = " Exit     ";
+  menu_s[1] = " Members  ";
+  menu_s[2] = " Stats    ";
+  menu_s[3] = " Backup   ";
+  menu_s[4] = " Exit     ";
 
   // Windows for roll-down menus
   menu_win = newwin(MENU_LEN + 2, 12, 2, 0);
@@ -137,9 +146,13 @@ void menu(long semstart, const int PRICE) {
     
     switch (ch = getch()) {
     case 27:
-      if (dialog_sure())
+      if (dialog_sure(main_win, panels)) {
+        free(menu_s);
+        delwin(menu_win);
+        delwin(padw);
         return;
-      prefresh(padw, curr_scroll, 1, 3, 1, y, x-2);
+      }
+      refresh_bg(db, main_win, padw, prev_y, curr_scroll, semstart, PRICE);
       break;
     case KEY_UP:
       active_y == 0 ? active_y = MENU_LEN - 1 : active_y--;
@@ -150,50 +163,47 @@ void menu(long semstart, const int PRICE) {
     case 10:
       switch (active_y) {
       case 0:
-        home(WAIT);
+        home(main_win, WAIT);
         break;
       case 1:
-        reg(curr_scroll, semstart, PRICE);
+        members(db, main_win, padw, panels, IN_FOREGROUND,
+                semstart, (long) time(NULL), &curr_scroll, PRICE);
         break;
       case 2:
-        members(IN_FOREGROUND, semstart, (long) time(NULL),
-                &curr_scroll, PRICE);
+        stats(db, main_win, IN_FOREGROUND, semstart, PRICE, WAIT);
         break;
       case 3:
-        stats(IN_FOREGROUND, semstart, PRICE, WAIT);
+        backup(main_win, panels);
+        refresh_bg(db, main_win, padw, prev_y, curr_scroll, semstart, PRICE);
         break;
       case 4:
-        backup();
-        refresh_bg(prev_y, curr_scroll, semstart, PRICE);
-        break;
-      case 5:
-        if (dialog_sure())
+        if (dialog_sure(main_win, panels)) {
+          free(menu_s);
+          delwin(menu_win);
+          delwin(padw);
           return;
-        refresh_bg(prev_y, curr_scroll, semstart, PRICE);
+        }
+        refresh_bg(db, main_win, padw, prev_y, curr_scroll, semstart, PRICE);
       }
-      prev_y = active_y != 1 && active_y != 4
+      prev_y = active_y != 4
         && active_y != 5 ? active_y : prev_y;
     }
   }
-  for (i = 0; i < MENU_LEN; i++)
-    free(menu_s[i]);
-  free(menu_s);
 }
 
-void refresh_bg(int prev_y, int curr_scroll, long semstart,
-                const int PRICE) {
+void refresh_bg(sqlite3 *db, WINDOW *main_win, WINDOW *padw, int prev_y,
+                int curr_scroll, long semstart, const int PRICE) {
   int x, y;
   getmaxyx(main_win, y, x);
   switch (prev_y) {
   case 0:
-    home(NOWAIT);
+    home(main_win, NOWAIT);
     break;
   case 1:
-  case 2:
     prefresh(padw, curr_scroll, 1, 3, 1, y, x-2);
     break;
-  case 3:
-    stats(IN_FOREGROUND, semstart, PRICE, NOWAIT);
+  case 2:
+    stats(db, main_win, IN_FOREGROUND, semstart, PRICE, NOWAIT);
     break;
   }
 }
@@ -209,8 +219,7 @@ void printmenu(WINDOW *mw, char **menu_s, int ML, int active) {
   wrefresh(mw);
 }
 
-void home(int w) {
-  // TODO dancing bear
+void home(WINDOW *main_win, int w) {
   int i;
   char *bear[10];
   int x, y, ch;
@@ -237,7 +246,7 @@ void home(int w) {
   char *s = "Dette er Realistforeningens medlemsliste.";
   mvwprintw(main_win, (y >> 1) - 6 + i, (x - strlen(s)) >> 1, s);
   wrefresh(main_win);
-  if (NOWAIT)
+  if (w == NOWAIT)
     return;
   for (;;) {
     switch (ch = getch()) {
@@ -247,7 +256,8 @@ void home(int w) {
   }
 }
 
-void reg(int curr_scroll, long semstart, const int PRICE) {
+void reg(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
+         int curr_scroll, long semstart, const int PRICE) {
   int x, y, ch, h = 15, wi = 50, i;
   FIELD *fields[3];
   FORM *rf_form;
@@ -274,7 +284,6 @@ void reg(int curr_scroll, long semstart, const int PRICE) {
   keypad(dwin, true);
   set_form_sub(rf_form, dwin);
   box(formw, 0, 0);
-  prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
   post_form(rf_form);
   mvwprintw(dwin, 1, 1, "  Fornavn:");
   mvwprintw(dwin, 3, 1, "Etternavn:");
@@ -307,10 +316,10 @@ void reg(int curr_scroll, long semstart, const int PRICE) {
       l_name = strstrip(field_buffer(fields[1], 0));
       if (!(*f_name & *l_name))
         break; // Don't allow empty names
-      register_member(f_name, l_name, false, time(NULL),
+      register_member(db, main_win, f_name, l_name, false, time(NULL),
                       semstart, PRICE);
-      members(IN_BACKGROUND, semstart, (long) time(NULL), &curr_scroll,
-              PRICE);
+      members(db, main_win, padw, panels, IN_BACKGROUND,
+              semstart, (long) time(NULL), &curr_scroll, PRICE);
       prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
       box(formw, 0, 0);
       form_driver(rf_form, REQ_CLR_FIELD);
@@ -331,6 +340,7 @@ void reg(int curr_scroll, long semstart, const int PRICE) {
       for (i = 0; i < 2; i++)
         free_field(fields[i]);
       prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
+      delwin(formw);
       return;
     default:
       form_driver(rf_form, ch);
@@ -340,7 +350,8 @@ void reg(int curr_scroll, long semstart, const int PRICE) {
   }
 }
 
-void members(int bg, long period_begin, long period_end, int *curr_scroll,
+void members(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
+             int bg, long period_begin, long period_end, int *curr_scroll,
              const int PRICE) {
   int x, y, ch;
   hide_panel(panels[1]);
@@ -353,21 +364,31 @@ void members(int bg, long period_begin, long period_end, int *curr_scroll,
   int delete_rowid = 0;
 
   *curr_scroll = 0;
-  search("", 0, period_begin, period_end, &curr_line, &visible_members,
-         &delete_rowid, *curr_scroll);
+  search(db, main_win, padw, "", 0, period_begin, period_end, &curr_line,
+         &visible_members, &delete_rowid, *curr_scroll);
   bool search_mode = false;
-  char *needle_buf = "", *send_s;
+  char *send_s, *needle_buf = malloc(sizeof(char) * 100);
+  needle_buf[0] = '\0';
+
   bool btm = false; // Hack to make scrolling work
   prefresh(padw, *curr_scroll, 1, 3, 1, y, x-2);
   if (bg)
     return;
   for (;;) {
     switch (ch = getch()) {
+    case 104: // H for Help
+      member_help();
+      prefresh(padw, *curr_scroll, 1, 3, 1, y, x-2);
+      break;
+    case 110: // N for New member
+      curr_line = 0;
+      reg(db, main_win, padw, panels, *curr_scroll, period_begin, PRICE);
+      break;
     case KEY_DOWN:
       if (curr_line == visible_members - 1) {
         btm = false;
         break;}
-      search(needle_buf, ++curr_line, period_begin, (long) time(NULL),
+      search(db, main_win, padw, needle_buf, ++curr_line, period_begin, (long) time(NULL),
              &curr_line, &visible_members, &delete_rowid, *curr_scroll);
       if (curr_line == visible_members - 1 && btm)
         break;
@@ -382,7 +403,7 @@ void members(int bg, long period_begin, long period_end, int *curr_scroll,
       }
       if (curr_line == visible_members - 1)
         btm = true;
-      search(needle_buf, --curr_line, period_begin, (long) time(NULL),
+      search(db, main_win, padw, needle_buf, --curr_line, period_begin, (long) time(NULL),
              &curr_line, &visible_members, &delete_rowid, *curr_scroll);
       if (curr_line < *curr_scroll)
         prefresh(padw, --(*curr_scroll), 1, 3, 1, y, x-2);
@@ -393,7 +414,7 @@ void members(int bg, long period_begin, long period_end, int *curr_scroll,
         needle_buf[--needle_idx] = '\0';
         send_s = (char *) malloc(needle_idx + 1);
         strncpy(send_s, needle_buf, needle_idx+1);
-        search(send_s, curr_line = 0, period_begin, (long) time(NULL),
+        search(db, main_win, padw, send_s, curr_line = 0, period_begin, (long) time(NULL),
                &curr_line, &visible_members, &delete_rowid, *curr_scroll);
         free(send_s);
         mvprintw(1, 26, "                         ");
@@ -401,11 +422,13 @@ void members(int bg, long period_begin, long period_end, int *curr_scroll,
       }
       break;
     case KEY_DC: // Delete
-      if (!delete(delete_rowid, *curr_scroll))
+      if (!delete(db, main_win, panels, delete_rowid)) {
+        prefresh(padw, *curr_scroll, 1, 3, 1, y, x-2);
         break;
-      stats(IN_BACKGROUND, period_begin, PRICE, WAIT);
+      }
+      stats(db, main_win, IN_BACKGROUND, period_begin, PRICE, WAIT);
       curr_line = 0;
-      search(needle_buf, 0, period_begin, (long) time(NULL), &curr_line,
+      search(db, main_win, padw, needle_buf, 0, period_begin, (long) time(NULL), &curr_line,
              &visible_members, &delete_rowid, *curr_scroll);
       break;
     case 47:
@@ -413,7 +436,6 @@ void members(int bg, long period_begin, long period_end, int *curr_scroll,
         curr_line = 0;
         *curr_scroll = 0;
         search_mode = true;
-        needle_buf = (char *) malloc(100);
         mvprintw(1, 19, "Search:");
         curs_set(1);
         move(1, 27);
@@ -425,13 +447,13 @@ void members(int bg, long period_begin, long period_end, int *curr_scroll,
         needle_idx = 0;
         curs_set(0);
         werase(padw);
-        search("", 0, period_begin, (long) time(NULL), &curr_line,
+        search(db, main_win, padw, "", 0, period_begin, (long) time(NULL), &curr_line,
                &visible_members, &delete_rowid, *curr_scroll);
-        free(needle_buf);
         mvprintw(1, 19, "                                ");
         prefresh(padw, *curr_scroll, 1, 3, 1, y, x - 2);
         break;
       }
+      free(needle_buf);
       curr_line = 0;
       prefresh(padw, *curr_scroll, 1, 3, 1, y, x - 2);
       return;
@@ -442,7 +464,7 @@ void members(int bg, long period_begin, long period_end, int *curr_scroll,
         needle_buf[needle_idx] = '\0';
         send_s = (char *) malloc(needle_idx + 1);
         strncpy(send_s, needle_buf, needle_idx + 1);
-        search(send_s, 0, period_begin, (long) time(NULL), &curr_line,
+        search(db, main_win, padw, send_s, 0, period_begin, (long) time(NULL), &curr_line,
                &visible_members, &delete_rowid, *curr_scroll);
         free(send_s);
         prefresh(padw, *curr_scroll, 1, 3, 1, y, x - 2);
@@ -450,6 +472,54 @@ void members(int bg, long period_begin, long period_end, int *curr_scroll,
       }
     }
   }
+}
+
+void member_help(WINDOW *main_win, PANEL **panels) {
+  int x, y, ch, h = 7, wi = 23, i = 1;
+  WINDOW *dialogw;
+  getmaxyx(main_win, y, x);
+
+  dialogw = newwin(h + 3, wi + 4, (y - h) >> 1, (x - wi) >> 1);
+  panels[3] = new_panel(dialogw);
+  update_panels();
+  doupdate();
+  box(dialogw, 0, 0);
+
+  wattron(dialogw, A_BOLD);
+  mvwprintw(dialogw, i++, 2,   " HELP FOR KEY BINDINGS");
+  wattroff(dialogw, A_BOLD);
+  i++;
+  mvwprintw(dialogw, i++, 2,   "H   - Opens this window");
+  mvwprintw(dialogw, i++, 2,   "N   - Add new member");
+  mvwprintw(dialogw, i++, 2,   "/   - Search by name");
+  mvwprintw(dialogw, i++, 2,   "ESC - Close window or");
+  mvwprintw(dialogw, i++, 2,   "      open main menu");
+
+
+  wrefresh(dialogw);
+  for (;;) {
+    switch (ch = getch()) {
+    case 27: // n
+      hide_panel(panels[3]);
+      update_panels();
+      doupdate();
+      return;
+    }
+  }
+}
+
+static char *base36(long value) {
+  char base36[37] = "0123456789ABCDEFGHiJKLMNoPQRSTUVWXYZ";
+  /* log(2**64) / log(36) = 12.38 => max 13 char + '\0' */
+  char buffer[14];
+  unsigned int offset = sizeof(buffer);
+
+  buffer[--offset] = '\0';
+  do {
+    buffer[--offset] = base36[value % 36];
+  } while (value /= 36);
+
+  return strdup(&buffer[offset]);
 }
 
 void print_y_n(WINDOW *w, int active) {
@@ -463,7 +533,7 @@ void print_y_n(WINDOW *w, int active) {
   wrefresh(w);
 }
 
-bool dialog_sure() {
+bool dialog_sure(WINDOW *main_win, PANEL **panels) {
   int x, y, ch, h = 2, wi = 13, active = 0;
   WINDOW *dialogw;
   getmaxyx(main_win, y, x);  
@@ -500,22 +570,18 @@ bool dialog_sure() {
   }
 }
 
-bool delete(int dl, int curr_scroll) {
-  int x, y;
-  getmaxyx(main_win, y, x);  
-  if (!dialog_sure()) {
-    prefresh(padw, curr_scroll, 1, 3, 1, y, x-2);
+bool delete(sqlite3 *db, WINDOW *main_win, PANEL **panels, int dl) {
+  if (!dialog_sure(main_win, panels)) {
     return false;
   }
   char sqls[50];
   sprintf(sqls, "DELETE FROM members WHERE rowid == %d AND\
  lifetime == 0", dl);
   sqlite3_exec(db, sqls, 0, 0, 0);
-  prefresh(padw, curr_scroll, 1, 3, 1, y, x-2);
   return true;
 }
 
-void backup() {
+void backup(WINDOW *main_win, PANEL **panels) {
   int x, y, ch, h = 15, wi = 70;
   WINDOW *backupw;
   hide_panel(panels[1]);
@@ -599,7 +665,7 @@ int ssh_backup(WINDOW *backupw) {
     ssh_free(sshs);
     sprintf(tmp, " Could not connect.");
     mvwprintw(backupw, line++, 2 + prev_tmp, tmp);
-    sprintf(tmp, "Check internet connection.");
+    sprintf(tmp, "Check internet connection or something.");
     mvwprintw(backupw, line, 2, tmp);
     wrefresh(backupw);
     return -1;
@@ -688,42 +754,48 @@ int ssh_backup(WINDOW *backupw) {
   return 0;
 }
 
-int search_callback(void *vcurr, int argc,
-                           char **member, char **colname) {
+static int search_callback(void *vcurr, int argc,
+                    char **member, char **colname) {
   int x, y;
-  int **vicurr = vcurr;
-  int *curr = vicurr[0];
-  int *curr_line = vicurr[1];
-  int *visible_members = vicurr[2];
-  int *delete_rowid = vicurr[3];
+  callback_container *cbc = vcurr;
+
+  WINDOW *padw = cbc->padw;
+  int *curr = cbc->curr;
+  int *curr_line = cbc->curr_line;
+  int *visible_members = cbc->visible_members;
+  int *delete_rowid = cbc->delete_rowid;
   
-  getmaxyx(main_win, y, x);
+  getmaxyx(padw, y, x);
   if (*curr == *curr_line)
-    wattron(padw, A_REVERSE);
-  mvwprintw(padw, *curr, 2, "%s %s", member[0], member[1]);
+    wattron(padw, A_REVERSE | A_BOLD);
+  mvwprintw(padw, *curr, 2, " %s %s ", member[0], member[1]);
   long ts = strtol(member[2], NULL, 10);
-  mvwprintw(padw, *curr, x - 26, "%s", asctime(localtime(&ts)));
+  char *ts_36 = base36(ts);
+  mvwprintw(padw, *curr, x - 26, " %s ", asctime(localtime(&ts)));
+  wattron(padw, A_BOLD);
+  mvwprintw(padw, *curr, x - 34, " %s ", ts_36);
+  wattroff(padw, A_BOLD);
   if ((*curr)++ == *curr_line) {
-    wattroff(padw, A_REVERSE);
+    wattroff(padw, A_REVERSE | A_BOLD);
     *delete_rowid = atoi(member[3]);
   }
   (*visible_members)++;
+  free(ts_36);
   return 0;
 }
 
-int search(char *needle, int hl, long period_begin, long period_end,
+int search(sqlite3 *db, WINDOW *main_win, WINDOW *padw,
+           char *needle, int hl, long period_begin, long period_end,
            int *curr_line, int *visible_members, int *delete_rowid,
            int curr_scroll) {
   *visible_members = 0;
   char sqls[500];
-  int **curr, y, x, *c;
-  curr = malloc(sizeof(int *)*4);
+  int y, x, *c;
   c = malloc(sizeof(int));
   *c = 0;
-  curr[0] = c;
-  curr[1] = curr_line;
-  curr[2] = visible_members;
-  curr[3] = delete_rowid;
+
+  callback_container curr = {padw, c, curr_line,
+                             visible_members, delete_rowid};
 
   getmaxyx(main_win, y, x);
   werase(padw);
@@ -731,9 +803,8 @@ int search(char *needle, int hl, long period_begin, long period_end,
 rowid FROM members WHERE (last_name LIKE '%%%s%%' OR first_name \
 LIKE '%%%s%%') AND timestamp > %ld ORDER BY timestamp DESC",
 needle, needle, period_begin);
-  sqlite3_exec(db, sqls, &search_callback, curr, 0);
+  sqlite3_exec(db, sqls, &search_callback, &curr, 0);
   prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
-  free(curr);
   free(c);
   return 0;
 }
@@ -753,12 +824,12 @@ char *strstrip(char *str) {
 
 static int stats_callback(void *n, int argc,
                           char **member, char **colnames) {
-  int *m = n;
-  (*m)++;
+  (*((int *) n))++;
   return 0;
 }
 
-void stats(int bg, long semstart, const int PRICE, int w) {
+void stats(sqlite3 *db, WINDOW *main_win, int bg, long semstart,
+           const int PRICE, int w) {
   // TODO This semester so far compared to avg. spring/autumn semester
   int x, y, ch, last24 = 0, thissem = 0;
   int lifetimers = 0, new_lifetimers = 0;
@@ -818,7 +889,7 @@ AND lifetime == 1", semstart);
   mvwprintw(main_win, t + 10, (x - strlen(tmp)) >> 1, tmp);
 
   wrefresh(main_win);
-  if (NOWAIT)
+  if (w == NOWAIT)
     return;
   for (;;) {
     switch (ch = getch()) {
@@ -834,7 +905,8 @@ void debug(char *msg) {
   doupdate();
 }
 
-void register_member(char *f_name, char *l_name, bool lifetime, long ts,
+void register_member(sqlite3 *db, WINDOW *main_win, char *f_name,
+                     char *l_name, bool lifetime, long ts,
                      long semstart, const int PRICE) {
   char sqls[500];
   char *errmsg = 0;
@@ -842,7 +914,7 @@ void register_member(char *f_name, char *l_name, bool lifetime, long ts,
 lifetime, timestamp) VALUES ('%s', '%s', %d, %ld)", f_name, l_name,
           (int) lifetime, ts);
   sqlite3_exec(db, sqls, 0, 0, &errmsg);
-  stats(IN_BACKGROUND, semstart, PRICE, NOWAIT);
+  stats(db, main_win, IN_BACKGROUND, semstart, PRICE, NOWAIT);
 }
 
 char *strtok2(char *line, char tok) {
@@ -886,7 +958,7 @@ int csv2reg(char *line) {
     int *my_sem = sem2my(sem);
     now->tm_year = my_sem[1];
     now->tm_mon = my_sem[0];
-    ts = (long) mktime(now);
+    ts = mktime(now);
   }
 
   sprintf(ln, "(%s)", comment);
