@@ -22,7 +22,7 @@ char *strstrip(char *str);
 int csv2reg(char *line);
 int get_lifetimers();
 int search(sqlite3 *db, WINDOW *main_win, WINDOW *padw,
-           char *needle, int hl, long period_begin, long period_end,
+           char *needle, long period_begin, long period_end,
            int *curr_line, int *visible_members, int *delete_rowid,
            int curr_scroll);
 int ssh_backup();
@@ -41,7 +41,8 @@ void printmenu(WINDOW *mw, char **menu_s, int ML, int active);
 void refresh_bg(sqlite3 *db, WINDOW *main_win, WINDOW *padw, int prev_y,
                 int curr_scroll, long semstart, const int PRICE);
 void reg(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
-         int curr_scroll, long semstart, const int PRICE);
+         int curr_scroll, int curr_line, int visible_members,
+         int delete_rowid, long semstart, const int PRICE);
 void register_member(sqlite3 *db, WINDOW *main_win, char *f_name,
                      char *l_name, bool lifetime, long ts, long semstart,
                      const int PRICE);
@@ -74,6 +75,10 @@ int main() {
   box(main_win, 0, 0);
   wrefresh(main_win);
   ESCDELAY = 0;
+
+  /* start_color();
+     assume_default_colors(3, 0); */
+
   const char *RF = "R E A L I S T F O R E N I N G E N";
   attron(A_BOLD);
   mvprintw(0, (COLS - strlen(RF)) >> 1, RF);
@@ -95,7 +100,7 @@ int main() {
   char *errmsg;
   char *sql = "CREATE TABLE IF NOT EXISTS members\
  (first_name NCHAR(50) NOT NULL, last_name NCHAR(50) NOT NULL,\
- lifetime TINYINT, timestamp BIGINT NOT NULL)";
+ lifetime TINYINT, timestamp BIGINT NOT NULL, paid INT)";
   sqlite3_exec(db, sql, NULL, NULL, &errmsg);
   //  debug(errmsg);
   stats(db, main_win, IN_BACKGROUND, semstart, PRICE, WAIT);
@@ -221,30 +226,47 @@ void printmenu(WINDOW *mw, char **menu_s, int ML, int active) {
 
 void home(WINDOW *main_win, int w) {
   int i;
-  char *bear[10];
+  char *bear[27];
   int x, y, ch;
 
   getmaxyx(main_win, y, x);
   werase(main_win);
   box(main_win, 0, 0);
 
-  bear[0] = "      _____        _";
-  bear[1] = "    d8888888b.   d888b   ,db";
-  bear[2] = "   d888888888888888888888888.*";
-  bear[3] = "  888888 88888888888 88 8888888o";
-  bear[4] = "  8888888 888888888 8888 8888`~~";
-  bear[5] = "  8888888 888888888 88888";
-  bear[6] = "   888888 8888888888 8888";
-  bear[7] = "  ## 88888  88888 ##  8888";
-  bear[8] = " #### 88888      ###   8888";
-  bear[9] = "###,,, 888,,,    ##,,,  88,,,";
+  bear[0] = "                         _____";
+  bear[1] = "                      _d       b_";
+  bear[2] = "                   _d             b_";
+  bear[3] = "                 _d                 b_";
+  bear[4] = "              _d                      b_";
+  bear[5] = "         (\\____ /\\                      b";
+  bear[6] = "         /      a )                      b";
+  bear[7] = "        ( Ø  Ø                            b";
+  bear[8] = "     d888b       _  \\                       b";
+  bear[9] = "     qO8Op      ´|` |                        b";
+  bear[10] = "      (_____,--´´  /                         b";
+  bear[11] = "          (___,---´                           8";
+  bear[12] = " ________    \\88\\/88                           8";
+  bear[13] = "(____  / \\..__88/\\88          |         |      8";
+  bear[14] = "   (__(_      |          _____|__       |      8";
+  bear[15] = "    (___     /        ,/´        `\\     |      8";
+  bear[16] = "     (__)____|       /                  /      8";
+  bear[17] = "             \\      ///                /       8";
+  bear[18] = "             |      ||| | ___         /        p";
+  bear[19] = "             |      `\\\\_\\/   `\\_____,/        |";
+  bear[20] = "             |                               |";
+  bear[21] = "             |                               |";
+  bear[22] = "             \\            __              /\\ (";
+  bear[23] = "             /           / /            ./  \\";
+  bear[24] = "            |           / (            (";
+  bear[25] = "          __|,.,.       |_|,.,.        \\\\";
+  bear[26] = "         ((_(_(_,__,___,((_(_(_,__,_____)";
 
-  for (i = 0; i < 10; i++)
-    mvwprintw(main_win, (y >> 1) - 7 + i,
-              (x - strlen(bear[3])) >> 1, bear[i]);
+  for (i = 0; i < 27; i++)
+    mvwprintw(main_win, (y >> 1) - 15 + i,
+              ((x - strlen(bear[12])) >> 1) - 3, bear[i]);
 
   char *s = "Dette er Realistforeningens medlemsliste.";
-  mvwprintw(main_win, (y >> 1) - 6 + i, (x - strlen(s)) >> 1, s);
+  mvwprintw(main_win, (y >> 1) - 14 + i, (x - strlen(s)) >> 1, s);
   wrefresh(main_win);
   if (w == NOWAIT)
     return;
@@ -257,7 +279,8 @@ void home(WINDOW *main_win, int w) {
 }
 
 void reg(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
-         int curr_scroll, long semstart, const int PRICE) {
+         int curr_scroll, int curr_line, int visible_members,
+         int delete_rowid, long semstart, const int PRICE) {
   int x, y, ch, h = 15, wi = 50, i;
   FIELD *fields[3];
   FORM *rf_form;
@@ -318,8 +341,8 @@ void reg(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
         break; // Don't allow empty names
       register_member(db, main_win, f_name, l_name, false, time(NULL),
                       semstart, PRICE);
-      members(db, main_win, padw, panels, IN_BACKGROUND,
-              semstart, (long) time(NULL), &curr_scroll, PRICE);
+      search(db, main_win, padw, "", semstart, (long) time(NULL),
+             &curr_line, &visible_members, &delete_rowid, curr_scroll);
       prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
       box(formw, 0, 0);
       form_driver(rf_form, REQ_CLR_FIELD);
@@ -364,7 +387,7 @@ void members(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
   int delete_rowid = 0;
 
   *curr_scroll = 0;
-  search(db, main_win, padw, "", 0, period_begin, period_end, &curr_line,
+  search(db, main_win, padw, "", period_begin, period_end, &curr_line,
          &visible_members, &delete_rowid, *curr_scroll);
   bool search_mode = false;
   char *send_s, *needle_buf = malloc(sizeof(char) * 100);
@@ -377,18 +400,23 @@ void members(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
   for (;;) {
     switch (ch = getch()) {
     case 104: // H for Help
-      member_help();
+      member_help(main_win, panels);
       prefresh(padw, *curr_scroll, 1, 3, 1, y, x-2);
       break;
     case 110: // N for New member
-      curr_line = 0;
-      reg(db, main_win, padw, panels, *curr_scroll, period_begin, PRICE);
+      if (search_mode)
+        break;
+      reg(db, main_win, padw, panels, *curr_scroll, curr_line,
+          visible_members, delete_rowid, period_begin, PRICE);
+      search(db, main_win, padw, "", period_begin, period_end, &curr_line,
+             &visible_members, &delete_rowid, *curr_scroll);
       break;
     case KEY_DOWN:
       if (curr_line == visible_members - 1) {
         btm = false;
         break;}
-      search(db, main_win, padw, needle_buf, ++curr_line, period_begin, (long) time(NULL),
+      curr_line++;
+      search(db, main_win, padw, needle_buf, period_begin, (long) time(NULL),
              &curr_line, &visible_members, &delete_rowid, *curr_scroll);
       if (curr_line == visible_members - 1 && btm)
         break;
@@ -403,7 +431,8 @@ void members(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
       }
       if (curr_line == visible_members - 1)
         btm = true;
-      search(db, main_win, padw, needle_buf, --curr_line, period_begin, (long) time(NULL),
+      curr_line--;
+      search(db, main_win, padw, needle_buf, period_begin, (long) time(NULL),
              &curr_line, &visible_members, &delete_rowid, *curr_scroll);
       if (curr_line < *curr_scroll)
         prefresh(padw, --(*curr_scroll), 1, 3, 1, y, x-2);
@@ -414,7 +443,8 @@ void members(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
         needle_buf[--needle_idx] = '\0';
         send_s = (char *) malloc(needle_idx + 1);
         strncpy(send_s, needle_buf, needle_idx+1);
-        search(db, main_win, padw, send_s, curr_line = 0, period_begin, (long) time(NULL),
+        curr_line = 0;
+        search(db, main_win, padw, send_s, period_begin, (long) time(NULL),
                &curr_line, &visible_members, &delete_rowid, *curr_scroll);
         free(send_s);
         mvprintw(1, 26, "                         ");
@@ -428,8 +458,8 @@ void members(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
       }
       stats(db, main_win, IN_BACKGROUND, period_begin, PRICE, WAIT);
       curr_line = 0;
-      search(db, main_win, padw, needle_buf, 0, period_begin, (long) time(NULL), &curr_line,
-             &visible_members, &delete_rowid, *curr_scroll);
+      search(db, main_win, padw, needle_buf, period_begin, (long) time(NULL),
+             &curr_line, &visible_members, &delete_rowid, *curr_scroll);
       break;
     case 47:
       if (!search_mode) {
@@ -447,8 +477,8 @@ void members(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
         needle_idx = 0;
         curs_set(0);
         werase(padw);
-        search(db, main_win, padw, "", 0, period_begin, (long) time(NULL), &curr_line,
-               &visible_members, &delete_rowid, *curr_scroll);
+        search(db, main_win, padw, "", period_begin, (long) time(NULL),
+               &curr_line, &visible_members, &delete_rowid, *curr_scroll);
         mvprintw(1, 19, "                                ");
         prefresh(padw, *curr_scroll, 1, 3, 1, y, x - 2);
         break;
@@ -464,8 +494,8 @@ void members(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
         needle_buf[needle_idx] = '\0';
         send_s = (char *) malloc(needle_idx + 1);
         strncpy(send_s, needle_buf, needle_idx + 1);
-        search(db, main_win, padw, send_s, 0, period_begin, (long) time(NULL), &curr_line,
-               &visible_members, &delete_rowid, *curr_scroll);
+        search(db, main_win, padw, send_s, period_begin, (long) time(NULL),
+               &curr_line, &visible_members, &delete_rowid, *curr_scroll);
         free(send_s);
         prefresh(padw, *curr_scroll, 1, 3, 1, y, x - 2);
         mvprintw(1, 26, " %s", needle_buf);
@@ -503,6 +533,7 @@ void member_help(WINDOW *main_win, PANEL **panels) {
       hide_panel(panels[3]);
       update_panels();
       doupdate();
+      delwin(dialogw);
       return;
     }
   }
@@ -559,12 +590,14 @@ bool dialog_sure(WINDOW *main_win, PANEL **panels) {
       hide_panel(panels[3]);
       update_panels();
       doupdate();
+      delwin(dialogw);
       return true;
       }
     case 110: // n
       hide_panel(panels[3]);
       update_panels();
       doupdate();
+      delwin(dialogw);
       return false;
     }
   }
@@ -599,6 +632,7 @@ void backup(WINDOW *main_win, PANEL **panels) {
   hide_panel(panels[3]);
   update_panels();
   doupdate();
+  delwin(backupw);
   return;
 }
 
@@ -785,7 +819,7 @@ static int search_callback(void *vcurr, int argc,
 }
 
 int search(sqlite3 *db, WINDOW *main_win, WINDOW *padw,
-           char *needle, int hl, long period_begin, long period_end,
+           char *needle, long period_begin, long period_end,
            int *curr_line, int *visible_members, int *delete_rowid,
            int curr_scroll) {
   *visible_members = 0;
@@ -911,8 +945,8 @@ void register_member(sqlite3 *db, WINDOW *main_win, char *f_name,
   char sqls[500];
   char *errmsg = 0;
   sprintf(sqls, "INSERT INTO members (first_name, last_name, \
-lifetime, timestamp) VALUES ('%s', '%s', %d, %ld)", f_name, l_name,
-          (int) lifetime, ts);
+lifetime, timestamp, paid) VALUES ('%s', '%s', %d, %ld, %d)", f_name, l_name,
+          (int) lifetime, ts, PRICE);
   sqlite3_exec(db, sqls, 0, 0, &errmsg);
   stats(db, main_win, IN_BACKGROUND, semstart, PRICE, NOWAIT);
 }
