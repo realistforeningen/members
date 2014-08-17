@@ -636,10 +636,13 @@ void backup(WINDOW *main_win, PANEL **panels) {
   return;
 }
 
-char *get_password(WINDOW *w, int y, int x) {
-  char *pass, *rf;
+char *get_password(WINDOW *w, int y, int x, bool h) {
+  char *pass, *rf, *ch_s;
   int ch, i = 0;
   pass = malloc(sizeof(char)*30);
+  ch_s = malloc(sizeof(char)*2);
+  wmove(w, y, x);
+  wrefresh(w);
   curs_set(1);
   for (;;) {
     switch (ch = getch()) {
@@ -653,13 +656,15 @@ char *get_password(WINDOW *w, int y, int x) {
     case 10:
       curs_set(0);
       pass[i] = '\0';
+      free(ch_s);
       return pass;
     default:
       if (i > 30)
         break;
       pass[i] = ch;
       rf = i % 2 ? "F" : "R";
-      mvwprintw(w, y, x + i++, rf);
+      sprintf(ch_s, "%c", ch);
+      mvwprintw(w, y, x + i++, h ? rf : ch_s);
       wrefresh(w);
       break;
     }
@@ -675,16 +680,19 @@ int ssh_backup(WINDOW *backupw) {
   FILE *member_file;
 
   // TODO Read this from rf.conf
-  user = "rf";
   domain = "login.ifi.uio.no";
   path = "Kjellerstyret/medlemsliste/";
   file_name = "members.db";
 
   mvwprintw(backupw, line++, 2, "Starting backup ...");
+  sprintf(tmp, "Enter username for %s:", domain);
+  mvwprintw(backupw, line++, 2, tmp);
   wrefresh(backupw);
 
   if (sshs == NULL)
     return -1;
+
+  user = get_password(backupw, line++, 2, 0);
 
   sprintf(tmp, "Connecting to %s@%s ...", user, domain);
   mvwprintw(backupw, line, 2, tmp);
@@ -708,12 +716,13 @@ int ssh_backup(WINDOW *backupw) {
   sprintf(tmp, " Connected!");
   mvwprintw(backupw, line++, 2 + prev_tmp, tmp);
   wrefresh(backupw);
+  free(user);
 
   // TODO Authenticate server
   sprintf(tmp, "Enter password: ");
   mvwprintw(backupw, line, 2, tmp);
   wrefresh(backupw);
-  password = get_password(backupw, line, 18);
+  password = get_password(backupw, line, 18, 1);
 
   sprintf(tmp, "Authenticating ...");
   mvwprintw(backupw, ++line, 2, tmp);
