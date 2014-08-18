@@ -636,7 +636,7 @@ void backup(WINDOW *main_win, PANEL **panels) {
   return;
 }
 
-char *get_password(WINDOW *w, int y, int x, bool h) {
+char *get_string(WINDOW *w, int y, int x, bool h) {
   char *pass, *rf, *ch_s;
   int ch, i = 0;
   pass = malloc(sizeof(char)*30);
@@ -692,7 +692,7 @@ int ssh_backup(WINDOW *backupw) {
   if (sshs == NULL)
     return -1;
 
-  user = get_password(backupw, line++, 2, 0);
+  user = get_string(backupw, line++, 2, 0);
 
   sprintf(tmp, "Connecting to %s@%s ...", user, domain);
   mvwprintw(backupw, line, 2, tmp);
@@ -716,13 +716,12 @@ int ssh_backup(WINDOW *backupw) {
   sprintf(tmp, " Connected!");
   mvwprintw(backupw, line++, 2 + prev_tmp, tmp);
   wrefresh(backupw);
-  free(user);
 
   // TODO Authenticate server
   sprintf(tmp, "Enter password: ");
   mvwprintw(backupw, line, 2, tmp);
   wrefresh(backupw);
-  password = get_password(backupw, line, 18, 1);
+  password = get_string(backupw, line, 18, 1);
 
   sprintf(tmp, "Authenticating ...");
   mvwprintw(backupw, ++line, 2, tmp);
@@ -744,6 +743,7 @@ int ssh_backup(WINDOW *backupw) {
   mvwprintw(backupw, line++, 2 + prev_tmp, tmp);
   wrefresh(backupw);
   free(password);
+  free(user);
 
   sprintf(tmp, "Opening SCP connection to %s ...", path);
   mvwprintw(backupw, line, 2, tmp);
@@ -1044,7 +1044,7 @@ int read_buffer(char *buffer) {
 
   // TODO Authenticate server
   // TODO Read password from user
-  //  password = get_password();
+  //  password = get_string();
   rc = ssh_userauth_password(sshs, NULL, password);
   if (rc != SSH_AUTH_SUCCESS) {
     ssh_disconnect(sshs);
