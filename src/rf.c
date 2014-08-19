@@ -619,6 +619,8 @@ void backup(WINDOW *main_win, PANEL **panels) {
   WINDOW *backupw;
   hide_panel(panels[1]);
   getmaxyx(main_win, y, x);
+  werase(main_win);
+  box(main_win, 0, 0);
 
   backupw = newwin(h + 3, wi + 4, (y - h) >> 1, (x - wi) >> 1);
   panels[3] = new_panel(backupw);
