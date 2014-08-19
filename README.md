@@ -4,6 +4,7 @@ Installasjon:
 2. `git clone https://github.com/skjvlnd/rf`
 3. `cd rf`
 4. `make`
+5. `scp rf@login.ifi.uio.no:Kjellerstyret/medlemsliste/members.db .`
 5. `build/rf-memberlist`
 
 Depends on `libncursesw`, `sqlite3` and `libssh`.
