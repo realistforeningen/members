@@ -787,6 +787,12 @@ int ssh_backup(WINDOW *backupw) {
     return -1;
   }
   rc = ssh_scp_init(scp);
+  if (rc != SSH_OK) {
+    // TODO Say so!
+    ssh_disconnect(sshs);
+    ssh_free(sshs);
+    return -1;
+  }
   prev_tmp = strlen(tmp);
   sprintf(tmp, " Done!");
   mvwprintw(backupw, line++, 2 + prev_tmp, tmp);
