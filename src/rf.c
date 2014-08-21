@@ -19,6 +19,7 @@
 bool delete(sqlite3 *db, WINDOW *main_win, PANEL **panels, int dl);
 bool dialog_sure(WINDOW *main_win, PANEL **panels);
 char *strstrip(char *str);
+char *strtok2(char *line, char tok);
 int csv2reg(char *line);
 int get_lifetimers();
 int search(sqlite3 *db, WINDOW *main_win, WINDOW *padw,
@@ -35,21 +36,23 @@ void home(WINDOW *main_win, int w);
 void member_help();
 void members(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
              int bg, long period_begin, long period_end,
-             int *curr_scroll, const int PRICE);
+             int *curr_scroll, int price);
 void menu(sqlite3 *db, WINDOW *main_win,
-          PANEL **panels, long semstart, const int PRICE);
+          PANEL **panels, long semstart, int price);
 void print_y_n(WINDOW *w, int active);
 void printmenu(WINDOW *mw, char **menu_s, int ML, int active);
+void read_conf(char *conf_name, int *price, char *domain,
+               char *path, char *file_name);
 void refresh_bg(sqlite3 *db, WINDOW *main_win, WINDOW *padw, int prev_y,
-                int curr_scroll, long semstart, const int PRICE);
+                int curr_scroll, long semstart, int price);
 void reg(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
          int curr_scroll, int curr_line, int visible_members,
-         int delete_rowid, long semstart, const int PRICE);
+         int delete_rowid, long semstart, int price);
 void register_member(sqlite3 *db, WINDOW *main_win, char *f_name,
                      char *l_name, bool lifetime, long ts, long semstart,
-                     const int PRICE);
+                     int price);
 void stats(sqlite3 *db, WINDOW *main_win, int bg, long semstart,
-           const int PRICE, int w);
+           int price, int w);
 
 typedef struct {
   WINDOW *padw;
@@ -57,11 +60,14 @@ typedef struct {
 } callback_container;
 
 int main() {
-  const int PRICE = 50;
+  int price;
   long semstart;
   WINDOW *main_win;
   sqlite3 *db;
   PANEL *panels[4];
+  char _[20];
+
+  read_conf("rf.conf", &price, _, _, _);
 
   // Set up ncurses
   setlocale(LC_ALL, "");
@@ -108,11 +114,11 @@ int main() {
  (first_name NCHAR(50) NOT NULL, last_name NCHAR(50) NOT NULL,\
  lifetime TINYINT, timestamp BIGINT NOT NULL, paid INT)";
   sqlite3_exec(db, sql, NULL, NULL, &errmsg);
-  stats(db, main_win, IN_BACKGROUND, semstart, PRICE, WAIT);
+  stats(db, main_win, IN_BACKGROUND, semstart, price, WAIT);
 
   // Start main loop
   home(main_win, WAIT);
-  menu(db, main_win, panels, semstart, PRICE);
+  menu(db, main_win, panels, semstart, price);
 
   delwin(main_win);
   endwin();
@@ -120,7 +126,7 @@ int main() {
 }
 
 void menu(sqlite3 *db, WINDOW *main_win,
-          PANEL **panels, long semstart, const int PRICE) {
+          PANEL **panels, long semstart, int price) {
   int active_y = 0, prev_y = 0, ch;
   char **menu_s;
   WINDOW *menu_win, *padw;
@@ -162,7 +168,7 @@ void menu(sqlite3 *db, WINDOW *main_win,
         delwin(padw);
         return;
       }
-      refresh_bg(db, main_win, padw, prev_y, curr_scroll, semstart, PRICE);
+      refresh_bg(db, main_win, padw, prev_y, curr_scroll, semstart, price);
       break;
     case KEY_UP:
       active_y == 0 ? active_y = MENU_LEN - 1 : active_y--;
@@ -177,14 +183,14 @@ void menu(sqlite3 *db, WINDOW *main_win,
         break;
       case 1:
         members(db, main_win, padw, panels, IN_FOREGROUND,
-                semstart, (long) time(NULL), &curr_scroll, PRICE);
+                semstart, (long) time(NULL), &curr_scroll, price);
         break;
       case 2:
-        stats(db, main_win, IN_FOREGROUND, semstart, PRICE, WAIT);
+        stats(db, main_win, IN_FOREGROUND, semstart, price, WAIT);
         break;
       case 3:
         backup(main_win, panels);
-        refresh_bg(db, main_win, padw, prev_y, curr_scroll, semstart, PRICE);
+        refresh_bg(db, main_win, padw, prev_y, curr_scroll, semstart, price);
         break;
       case 4:
         if (dialog_sure(main_win, panels)) {
@@ -193,7 +199,7 @@ void menu(sqlite3 *db, WINDOW *main_win,
           delwin(padw);
           return;
         }
-        refresh_bg(db, main_win, padw, prev_y, curr_scroll, semstart, PRICE);
+        refresh_bg(db, main_win, padw, prev_y, curr_scroll, semstart, price);
       }
       prev_y = active_y != 4
         && active_y != 5 ? active_y : prev_y;
@@ -202,7 +208,7 @@ void menu(sqlite3 *db, WINDOW *main_win,
 }
 
 void refresh_bg(sqlite3 *db, WINDOW *main_win, WINDOW *padw, int prev_y,
-                int curr_scroll, long semstart, const int PRICE) {
+                int curr_scroll, long semstart, int price) {
   int x, y;
   getmaxyx(main_win, y, x);
   switch (prev_y) {
@@ -213,7 +219,7 @@ void refresh_bg(sqlite3 *db, WINDOW *main_win, WINDOW *padw, int prev_y,
     prefresh(padw, curr_scroll, 1, 3, 1, y, x-2);
     break;
   case 2:
-    stats(db, main_win, IN_FOREGROUND, semstart, PRICE, NOWAIT);
+    stats(db, main_win, IN_FOREGROUND, semstart, price, NOWAIT);
     break;
   }
 }
@@ -285,7 +291,7 @@ void home(WINDOW *main_win, int w) {
 
 void reg(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
          int curr_scroll, int curr_line, int visible_members,
-         int delete_rowid, long semstart, const int PRICE) {
+         int delete_rowid, long semstart, int price) {
   int x, y, ch, h = 15, wi = 50, i;
   FIELD *fields[3];
   FORM *rf_form;
@@ -346,7 +352,7 @@ void reg(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
       if (!(*f_name & *l_name))
         break; // Don't allow empty names
       register_member(db, main_win, f_name, l_name, false, time(NULL),
-                      semstart, PRICE);
+                      semstart, price);
       search(db, main_win, padw, "", semstart, (long) time(NULL),
              &curr_line, &visible_members, &delete_rowid, curr_scroll);
       prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
@@ -382,7 +388,7 @@ void reg(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
 
 void members(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
              int bg, long period_begin, long period_end, int *curr_scroll,
-             const int PRICE) {
+             int price) {
   int x, y, ch;
   hide_panel(panels[1]);
   getmaxyx(main_win, y, x);
@@ -414,7 +420,7 @@ void members(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
       if (search_mode)
         break;
       reg(db, main_win, padw, panels, *curr_scroll, curr_line,
-          visible_members, delete_rowid, period_begin, PRICE);
+          visible_members, delete_rowid, period_begin, price);
       search(db, main_win, padw, "", period_begin, period_end, &curr_line,
              &visible_members, &delete_rowid, *curr_scroll);
       break;
@@ -463,7 +469,7 @@ void members(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
         prefresh(padw, *curr_scroll, 1, 3, 1, y, x-2);
         break;
       }
-      stats(db, main_win, IN_BACKGROUND, period_begin, PRICE, WAIT);
+      stats(db, main_win, IN_BACKGROUND, period_begin, price, WAIT);
       curr_line = 0;
       search(db, main_win, padw, needle_buf, period_begin, (long) time(NULL),
              &curr_line, &visible_members, &delete_rowid, *curr_scroll);
@@ -706,15 +712,12 @@ char *get_string(WINDOW *w, int y, int x, bool h) {
 int ssh_backup(WINDOW *backupw) {
   ssh_session sshs = ssh_new();
   ssh_scp scp;
-  int rc, size, prev_tmp, line = 1;
-  char *user, *domain, *password, *path, *buffer, tmp[300];
-  char *file_name;
+  int rc, size, prev_tmp, line = 1, _;
+  char *user, domain[80], *password, path[100], *buffer, tmp[300];
+  char file_name[80];
   FILE *member_file;
 
-  // TODO Read this from rf.conf
-  domain = "login.ifi.uio.no";
-  path = "Kjellerstyret/medlemsliste/";
-  file_name = "members.db";
+  read_conf("rf.conf", &_, domain, path, file_name);
 
   mvwprintw(backupw, line++, 2, "Starting backup ...");
   sprintf(tmp, "Enter username for %s:", domain);
@@ -731,11 +734,10 @@ int ssh_backup(WINDOW *backupw) {
   wrefresh(backupw);
   ssh_options_set(sshs, SSH_OPTIONS_HOST, domain);
   ssh_options_set(sshs, SSH_OPTIONS_USER, user);
-  rc = ssh_connect(sshs);
 
   prev_tmp = strlen(tmp);
 
-  if (rc != SSH_OK) {
+  if ((rc = ssh_connect(sshs)) != SSH_OK) {
     ssh_free(sshs);
     sprintf(tmp, " Could not connect.");
     mvwprintw(backupw, line++, 2 + prev_tmp, tmp);
@@ -760,8 +762,8 @@ int ssh_backup(WINDOW *backupw) {
   wrefresh(backupw);
 
   prev_tmp = strlen(tmp);
-  rc = ssh_userauth_password(sshs, NULL, password);
-  if (rc != SSH_AUTH_SUCCESS) {
+  if ((rc = ssh_userauth_password(sshs, NULL, password))
+      != SSH_AUTH_SUCCESS) {
     ssh_disconnect(sshs);
     ssh_free(sshs);
     sprintf(tmp, " Failed.");
@@ -778,14 +780,12 @@ int ssh_backup(WINDOW *backupw) {
   sprintf(tmp, "Opening SCP connection to %s ...", path);
   mvwprintw(backupw, line, 2, tmp);
   wrefresh(backupw);
-  scp = ssh_scp_new(sshs, SSH_SCP_WRITE, path);
-  if (scp == NULL) {
+  if ((scp = ssh_scp_new(sshs, SSH_SCP_WRITE, path)) == NULL) {
     ssh_disconnect(sshs);
     ssh_free(sshs);
     return -1;
   }
-  rc = ssh_scp_init(scp);
-  if (rc != SSH_OK) {
+  if ((rc = ssh_scp_init(scp)) != SSH_OK) {
     // TODO Say so!
     ssh_disconnect(sshs);
     ssh_free(sshs);
@@ -812,15 +812,13 @@ int ssh_backup(WINDOW *backupw) {
   sprintf(tmp, "Uploading ...");
   mvwprintw(backupw, line, 2, tmp);
   wrefresh(backupw);
-  rc = ssh_scp_push_file(scp, file_name, size, 0644);
-  if (rc != SSH_OK) {
+  if ((rc = ssh_scp_push_file(scp, file_name, size, 0644)) != SSH_OK) {
     // TODO Say so!
     ssh_disconnect(sshs);
     ssh_free(sshs);
     return -1;
   }
-  rc = ssh_scp_write(scp, buffer, size);
-  if (rc != SSH_OK) {
+  if ((rc = ssh_scp_write(scp, buffer, size)) != SSH_OK) {
     // TODO Say so!
     ssh_disconnect(sshs);
     ssh_free(sshs);
@@ -844,15 +842,12 @@ int ssh_backup(WINDOW *backupw) {
 int ssh_fetch_db(WINDOW *main_win) {
   ssh_session sshs = ssh_new();
   ssh_scp scp;
-  int rc, size, prev_tmp, line = 1;
-  char *user, *domain, *password, *path, *buffer, tmp[300];
-  char *file_name, *pfn;
+  int rc, size, prev_tmp, line = 1, _;
+  char *user, domain[80], *password, path[100], *buffer, tmp[300];
+  char file_name[80], *pfn;
   FILE *member_file;
 
-  // TODO Read this from rf.conf
-  domain = "login.ifi.uio.no";
-  path = "Kjellerstyret/medlemsliste/";
-  file_name = "members.db";
+  read_conf("rf.conf", &_, domain, path, file_name);
 
   pfn = malloc(sizeof(char)*(strlen(file_name) + strlen(path)));
 
@@ -871,11 +866,10 @@ int ssh_fetch_db(WINDOW *main_win) {
   wrefresh(main_win);
   ssh_options_set(sshs, SSH_OPTIONS_HOST, domain);
   ssh_options_set(sshs, SSH_OPTIONS_USER, user);
-  rc = ssh_connect(sshs);
 
   prev_tmp = strlen(tmp);
 
-  if (rc != SSH_OK) {
+  if ((rc = ssh_connect(sshs)) != SSH_OK) {
     ssh_free(sshs);
     sprintf(tmp, " Could not connect.");
     mvwprintw(main_win, line++, 2 + prev_tmp, tmp);
@@ -900,8 +894,8 @@ int ssh_fetch_db(WINDOW *main_win) {
   wrefresh(main_win);
 
   prev_tmp = strlen(tmp);
-  rc = ssh_userauth_password(sshs, NULL, password);
-  if (rc != SSH_AUTH_SUCCESS) {
+  if ((rc = ssh_userauth_password(sshs, NULL, password))
+      != SSH_AUTH_SUCCESS) {
     ssh_disconnect(sshs);
     ssh_free(sshs);
     sprintf(tmp, " Failed.");
@@ -921,8 +915,7 @@ int ssh_fetch_db(WINDOW *main_win) {
   mvwprintw(main_win, line, 2, tmp);
   wrefresh(main_win);
   sprintf(pfn, "%s%s", path, file_name);
-  scp = ssh_scp_new(sshs, SSH_SCP_READ, pfn);
-  if (scp == NULL) {
+  if ((scp = ssh_scp_new(sshs, SSH_SCP_READ, pfn)) == NULL) {
     ssh_disconnect(sshs);
     ssh_free(sshs);
     return -1;
@@ -943,7 +936,11 @@ int ssh_fetch_db(WINDOW *main_win) {
   mvwprintw(main_win, line, 2, tmp);
   wrefresh(main_win);
   ssh_scp_accept_request(scp);
-  rc = ssh_scp_read(scp, buffer, size);
+  if ((rc = ssh_scp_read(scp, buffer, size)) != SSH_SCP_REQUEST_EOF) {
+    ssh_disconnect(sshs);
+    ssh_free(sshs);
+    return -1;
+  }
   prev_tmp = strlen(tmp);
   sprintf(tmp, " Done!");
   mvwprintw(main_win, line++, 2 + prev_tmp, tmp);
@@ -958,8 +955,7 @@ int ssh_fetch_db(WINDOW *main_win) {
   free(pfn);
   fclose(member_file);
 
-  rc = ssh_scp_pull_request(scp);
-  if (rc != SSH_SCP_REQUEST_EOF) {
+  if ((rc = ssh_scp_pull_request(scp)) != SSH_SCP_REQUEST_EOF) {
     ssh_disconnect(sshs);
     ssh_free(sshs);
     return -1;
@@ -1053,7 +1049,7 @@ static int stats_callback(void *n, int argc,
 }
 
 void stats(sqlite3 *db, WINDOW *main_win, int bg, long semstart,
-           const int PRICE, int w) {
+           int price, int w) {
   // TODO This semester so far compared to avg. spring/autumn semester
   int x, y, ch, last24 = 0, thissem = 0;
   int lifetimers = 0, new_lifetimers = 0;
@@ -1081,7 +1077,7 @@ AND lifetime == 1", semstart);
 
   if (bg == IN_BACKGROUND) {
     mvprintw(1, COLS - 33, "NOK: %5d TDY: %5d TTL: %5d",
-             last24 * PRICE, last24, thissem);
+             last24 * price, last24, thissem);
     return;
   }
 
@@ -1095,7 +1091,7 @@ AND lifetime == 1", semstart);
   mvwprintw(main_win, t, (x - strlen(tmp)) >> 1, tmp);
   sprintf(tmp, "New members:   %8d", last24);
   mvwprintw(main_win, t + 1, (x - strlen(tmp)) >> 1, tmp);
-  sprintf(tmp, "Revenue (NOK): %8d", last24 * PRICE);
+  sprintf(tmp, "Revenue (NOK): %8d", last24 * price);
   mvwprintw(main_win, t + 2, (x - strlen(tmp)) >> 1, tmp);
 
   sprintf(tmp, "THIS SEMESTER");
@@ -1108,8 +1104,8 @@ AND lifetime == 1", semstart);
   mvwprintw(main_win, t + 8, (x - strlen(tmp)) >> 1, tmp);
   sprintf(tmp, "Total members: %8d", thissem + lifetimers);
   mvwprintw(main_win, t + 9, (x - strlen(tmp)) >> 1, tmp);
-  sprintf(tmp, "Revenue (NOK): %8d", thissem * PRICE
-          + new_lifetimers * PRICE * 10);
+  sprintf(tmp, "Revenue (NOK): %8d", thissem * price
+          + new_lifetimers * price * 10);
   mvwprintw(main_win, t + 10, (x - strlen(tmp)) >> 1, tmp);
 
   wrefresh(main_win);
@@ -1131,14 +1127,21 @@ void debug(char *msg) {
 
 void register_member(sqlite3 *db, WINDOW *main_win, char *f_name,
                      char *l_name, bool lifetime, long ts,
-                     long semstart, const int PRICE) {
+                     long semstart, int price) {
   char sqls[500];
   char *errmsg = 0;
   sprintf(sqls, "INSERT INTO members (first_name, last_name, \
 lifetime, timestamp, paid) VALUES ('%s', '%s', %d, %ld, %d)", f_name, l_name,
-          (int) lifetime, ts, PRICE);
+          (int) lifetime, ts, price);
   sqlite3_exec(db, sqls, 0, 0, &errmsg);
-  stats(db, main_win, IN_BACKGROUND, semstart, PRICE, NOWAIT);
+  stats(db, main_win, IN_BACKGROUND, semstart, price, NOWAIT);
+}
+
+void read_conf(char *conf_name, int *price, char *domain,
+               char *path, char *file_name) {
+  FILE *fp = fopen(conf_name, "r");
+  fscanf(fp, "%d\n%s\n%s\n%s", price, domain, path, file_name);
+  fclose(fp);
 }
 
 char *strtok2(char *line, char tok) {
@@ -1187,7 +1190,7 @@ int csv2reg(char *line) {
 
   sprintf(ln, "(%s)", comment);
 
-  //  register_member(name, ln, true, ts, PRICE);
+  //  register_member(name, ln, true, ts, price);
 
   free(line);
   return 0;
