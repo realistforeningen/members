@@ -774,8 +774,6 @@ int ssh_backup(WINDOW *backupw) {
   sprintf(tmp, " OK");
   mvwprintw(backupw, line++, 2 + prev_tmp, tmp);
   wrefresh(backupw);
-  free(password);
-  free(user);
 
   sprintf(tmp, "Opening SCP connection to %s ...", path);
   mvwprintw(backupw, line, 2, tmp);
@@ -838,6 +836,8 @@ int ssh_backup(WINDOW *backupw) {
   free(buffer);
   ssh_disconnect(sshs);
   ssh_free(sshs);
+  free(password);
+  free(user);
   return 0;
 }
 
