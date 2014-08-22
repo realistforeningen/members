@@ -60,7 +60,7 @@ typedef struct {
 } callback_container;
 
 int main() {
-  int price;
+  int price = 50;
   long semstart;
   WINDOW *main_win;
   sqlite3 *db;
@@ -411,112 +411,111 @@ void members(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
   if (bg)
     return;
   for (;;) {
-    switch (ch = getch()) {
-    case 104: // H for Help
-      member_help(main_win, panels);
-      prefresh(padw, *curr_scroll, 1, 3, 1, y, x-2);
-      break;
-    case KEY_DOWN:
-      if (curr_line == visible_members - 1) {
-        btm = false;
-        break;}
-      curr_line++;
-      search(db, main_win, padw, needle_buf, period_begin, (long) time(NULL),
-             &curr_line, &visible_members, &delete_rowid, *curr_scroll);
-      if (curr_line == visible_members - 1 && btm)
+    if (search_mode) {
+      switch (ch = getch()) {
+      case 27:
+          search_mode = false;
+          needle_idx = 0;
+          curs_set(0);
+          werase(padw);
+          search(db, main_win, padw, "", period_begin, (long) time(NULL),
+                 &curr_line, &visible_members, &delete_rowid, *curr_scroll);
+          mvprintw(1, 19, "                                ");
+          prefresh(padw, *curr_scroll, 1, 3, 1, y, x - 2);
+          break;
+      case KEY_BACKSPACE:
+        if (needle_idx > 0) {
+          needle_buf[--needle_idx] = '\0';
+          send_s = (char *) malloc(needle_idx + 1);
+          strncpy(send_s, needle_buf, needle_idx+1);
+          curr_line = 0;
+          search(db, main_win, padw, send_s, period_begin, (long) time(NULL),
+                 &curr_line, &visible_members, &delete_rowid, *curr_scroll);
+          free(send_s);
+          mvprintw(1, 26, "                         ");
+          mvprintw(1, 27, "%s", needle_buf);
+        }
         break;
-      if (curr_line > y - 3)
-        prefresh(padw, ++(*curr_scroll), 1, 3, 1, y, x-2);
-      move(1, 27 + needle_idx);
-      break;
-    case KEY_UP:
-      if (curr_line == 0) {
-        btm = false;
-        break;
+      default:
+        if (search_mode && needle_idx < 32) {
+          werase(padw);
+          needle_buf[needle_idx++] = (char) ch;
+          needle_buf[needle_idx] = '\0';
+          send_s = (char *) malloc(needle_idx + 1);
+          strncpy(send_s, needle_buf, needle_idx + 1);
+          search(db, main_win, padw, send_s, period_begin, (long) time(NULL),
+                 &curr_line, &visible_members, &delete_rowid, *curr_scroll);
+          free(send_s);
+          prefresh(padw, *curr_scroll, 1, 3, 1, y, x - 2);
+          mvprintw(1, 26, " %s", needle_buf);
+        }
       }
-      if (curr_line == visible_members - 1)
-        btm = true;
-      curr_line--;
-      search(db, main_win, padw, needle_buf, period_begin, (long) time(NULL),
-             &curr_line, &visible_members, &delete_rowid, *curr_scroll);
-      if (curr_line < *curr_scroll)
-        prefresh(padw, --(*curr_scroll), 1, 3, 1, y, x-2);
-      move(1, 27 + needle_idx);
-      break;
-    case KEY_BACKSPACE:
-      if (search_mode && needle_idx > 0) {
-        needle_buf[--needle_idx] = '\0';
-        send_s = (char *) malloc(needle_idx + 1);
-        strncpy(send_s, needle_buf, needle_idx+1);
-        curr_line = 0;
-        search(db, main_win, padw, send_s, period_begin, (long) time(NULL),
-               &curr_line, &visible_members, &delete_rowid, *curr_scroll);
-        free(send_s);
-        mvprintw(1, 26, "                         ");
-        mvprintw(1, 27, "%s", needle_buf);
-      }
-      break;
-    case KEY_DC: // Delete
-      if (!delete(db, main_win, panels, delete_rowid)) {
+    } else {
+      switch (ch = getch()) {
+      case 104: // H for Help
+        member_help(main_win, panels);
         prefresh(padw, *curr_scroll, 1, 3, 1, y, x-2);
         break;
-      }
-      stats(db, main_win, IN_BACKGROUND, period_begin, price, WAIT);
-      curr_line = 0;
-      search(db, main_win, padw, needle_buf, period_begin, (long) time(NULL),
-             &curr_line, &visible_members, &delete_rowid, *curr_scroll);
-      break;
-    case 47:
-      if (!search_mode) {
+      case KEY_DOWN:
+        if (curr_line == visible_members - 1) {
+          btm = false;
+          break;}
+        curr_line++;
+        search(db, main_win, padw, needle_buf, period_begin, (long) time(NULL),
+               &curr_line, &visible_members, &delete_rowid, *curr_scroll);
+        if (curr_line == visible_members - 1 && btm)
+          break;
+        if (curr_line > y - 3)
+          prefresh(padw, ++(*curr_scroll), 1, 3, 1, y, x-2);
+        move(1, 27 + needle_idx);
+        break;
+      case KEY_UP:
+        if (curr_line == 0) {
+          btm = false;
+          break;
+        }
+        if (curr_line == visible_members - 1)
+          btm = true;
+        curr_line--;
+        search(db, main_win, padw, needle_buf, period_begin, (long) time(NULL),
+               &curr_line, &visible_members, &delete_rowid, *curr_scroll);
+        if (curr_line < *curr_scroll)
+          prefresh(padw, --(*curr_scroll), 1, 3, 1, y, x-2);
+        move(1, 27 + needle_idx);
+        break;
+      case KEY_DC: // Delete
+        if (!delete(db, main_win, panels, delete_rowid)) {
+          prefresh(padw, *curr_scroll, 1, 3, 1, y, x-2);
+          break;
+        }
+        stats(db, main_win, IN_BACKGROUND, period_begin, price, WAIT);
+        curr_line = 0;
+        search(db, main_win, padw, needle_buf, period_begin, (long) time(NULL),
+               &curr_line, &visible_members, &delete_rowid, *curr_scroll);
+        break;
+      case 47:
         curr_line = 0;
         *curr_scroll = 0;
         search_mode = true;
         mvprintw(1, 19, "Search:");
         curs_set(1);
         move(1, 27);
-      }
-      break;
-    case 27:
-      if (search_mode) {
-        search_mode = false;
-        needle_idx = 0;
-        curs_set(0);
-        werase(padw);
-        search(db, main_win, padw, "", period_begin, (long) time(NULL),
-               &curr_line, &visible_members, &delete_rowid, *curr_scroll);
-        mvprintw(1, 19, "                                ");
-        prefresh(padw, *curr_scroll, 1, 3, 1, y, x - 2);
         break;
-      }
-      free(needle_buf);
-      curr_line = 0;
-      prefresh(padw, *curr_scroll, 1, 3, 1, y, x - 2);
-      return;
-    case 110: // N for New member
-      if (!search_mode) {
-        reg(db, main_win, padw, panels, *curr_scroll, curr_line,
-            visible_members, delete_rowid, period_begin, price);
-        search(db, main_win, padw, "", period_begin, period_end, &curr_line,
-               &visible_members, &delete_rowid, *curr_scroll);
-        break;
-      }
-    default:
-      if (search_mode && needle_idx < 32) {
-        werase(padw);
-        needle_buf[needle_idx++] = (char) ch;
-        needle_buf[needle_idx] = '\0';
-        send_s = (char *) malloc(needle_idx + 1);
-        strncpy(send_s, needle_buf, needle_idx + 1);
-        search(db, main_win, padw, send_s, period_begin, (long) time(NULL),
-               &curr_line, &visible_members, &delete_rowid, *curr_scroll);
-        free(send_s);
+      case 27:
+        free(needle_buf);
+        curr_line = 0;
         prefresh(padw, *curr_scroll, 1, 3, 1, y, x - 2);
-        mvprintw(1, 26, " %s", needle_buf);
+        return;
+      case 110: // N for New member
+          reg(db, main_win, padw, panels, *curr_scroll, curr_line,
+              visible_members, delete_rowid, period_begin, price);
+          search(db, main_win, padw, "", period_begin, period_end, &curr_line,
+                 &visible_members, &delete_rowid, *curr_scroll);
       }
     }
   }
 }
-
+  
 void member_help(WINDOW *main_win, PANEL **panels) {
   int x, y, ch, h = 7, wi = 23, i = 1;
   WINDOW *dialogw;
