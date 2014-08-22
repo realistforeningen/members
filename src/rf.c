@@ -67,7 +67,7 @@ int main() {
   PANEL *panels[4];
   char _[20];
 
-  read_conf("rf.conf", &price, _, _, _);
+  //  read_conf("rf.conf", &price, _, _, _);
 
   // Set up ncurses
   setlocale(LC_ALL, "");
