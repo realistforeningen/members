@@ -105,7 +105,7 @@ int main() {
   semstart = mktime(now);
 
   // Fetch database
-  ssh_fetch_db(main_win);
+  //  ssh_fetch_db(main_win);
 
   // Open database
   sqlite3_open("members.db", &db);
@@ -416,14 +416,6 @@ void members(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
       member_help(main_win, panels);
       prefresh(padw, *curr_scroll, 1, 3, 1, y, x-2);
       break;
-    case 110: // N for New member
-      if (search_mode)
-        break;
-      reg(db, main_win, padw, panels, *curr_scroll, curr_line,
-          visible_members, delete_rowid, period_begin, price);
-      search(db, main_win, padw, "", period_begin, period_end, &curr_line,
-             &visible_members, &delete_rowid, *curr_scroll);
-      break;
     case KEY_DOWN:
       if (curr_line == visible_members - 1) {
         btm = false;
@@ -500,6 +492,14 @@ void members(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
       curr_line = 0;
       prefresh(padw, *curr_scroll, 1, 3, 1, y, x - 2);
       return;
+    case 110: // N for New member
+      if (!search_mode) {
+        reg(db, main_win, padw, panels, *curr_scroll, curr_line,
+            visible_members, delete_rowid, period_begin, price);
+        search(db, main_win, padw, "", period_begin, period_end, &curr_line,
+               &visible_members, &delete_rowid, *curr_scroll);
+        break;
+      }
     default:
       if (search_mode && needle_idx < 32) {
         werase(padw);
