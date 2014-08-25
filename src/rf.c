@@ -1139,7 +1139,8 @@ lifetime, timestamp, paid) VALUES ('%s', '%s', %d, %ld, %d)", f_name, l_name,
 void read_conf(char *conf_name, int *price, char *domain,
                char *path, char *file_name) {
   FILE *fp = fopen(conf_name, "r");
-  fscanf(fp, "%d %s %s %s", price, domain, path, file_name);
+  fscanf(fp, "%s %s %s %d", domain, path, file_name, price);
+  debug(
   fclose(fp);
 }
 
