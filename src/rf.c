@@ -60,14 +60,14 @@ typedef struct {
 } callback_container;
 
 int main() {
-  int price = 50;
+  int price;
   long semstart;
   WINDOW *main_win;
   sqlite3 *db;
   PANEL *panels[4];
   char _[20];
 
-  //  read_conf("rf.conf", &price, _, _, _);
+  read_conf("rf.conf", &price, _, _, _);
 
   // Set up ncurses
   setlocale(LC_ALL, "");
@@ -1139,7 +1139,7 @@ lifetime, timestamp, paid) VALUES ('%s', '%s', %d, %ld, %d)", f_name, l_name,
 void read_conf(char *conf_name, int *price, char *domain,
                char *path, char *file_name) {
   FILE *fp = fopen(conf_name, "r");
-  fscanf(fp, "%d\n%s\n%s\n%s", price, domain, path, file_name);
+  fscanf(fp, "%d %s %s %s", price, domain, path, file_name);
   fclose(fp);
 }
 
