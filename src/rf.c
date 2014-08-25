@@ -1140,7 +1140,6 @@ void read_conf(char *conf_name, int *price, char *domain,
                char *path, char *file_name) {
   FILE *fp = fopen(conf_name, "r");
   fscanf(fp, "%s %s %s %d", domain, path, file_name, price);
-  debug(
   fclose(fp);
 }
 
