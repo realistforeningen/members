@@ -120,6 +120,7 @@ int main() {
   home(main_win, WAIT);
   menu(db, main_win, panels, semstart, price);
 
+  sqlite3_close(db);
   delwin(main_win);
   endwin();
   return 0;
@@ -166,6 +167,9 @@ void menu(sqlite3 *db, WINDOW *main_win,
         free(menu_s);
         delwin(menu_win);
         delwin(padw);
+        del_panel(panels[0]);
+        del_panel(panels[1]);
+        del_panel(panels[2]);
         return;
       }
       refresh_bg(db, main_win, padw, prev_y, curr_scroll, semstart, price);
@@ -197,6 +201,9 @@ void menu(sqlite3 *db, WINDOW *main_win,
           free(menu_s);
           delwin(menu_win);
           delwin(padw);
+          del_panel(panels[0]);
+          del_panel(panels[1]);
+          del_panel(panels[2]);
           return;
         }
         refresh_bg(db, main_win, padw, prev_y, curr_scroll, semstart, price);
@@ -267,9 +274,9 @@ void home(WINDOW *main_win, int w) {
   bear[20] = "             |                               |";
   bear[21] = "             |                               |";
   bear[22] = "             \\            __              /\\ (";
-  bear[23] = "             /           / /            ./  \\";
+  bear[23] = "             /           / /            ./  \\\\";
   bear[24] = "            |           / (            (";
-  bear[25] = "          __|,.,.       |_|,.,.        \\\\";
+  bear[25] = "          __|,.,.       |_|,.,.        \\";
   bear[26] = "         ((_(_(_,__,___,((_(_(_,__,_____)";
 
   for (i = 0; i < 27; i++)
@@ -377,6 +384,7 @@ void reg(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
         free_field(fields[i]);
       prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
       delwin(formw);
+      del_panel(panels[3]);
       return;
     default:
       form_driver(rf_form, ch);
@@ -546,6 +554,7 @@ void member_help(WINDOW *main_win, PANEL **panels) {
       update_panels();
       doupdate();
       delwin(dialogw);
+      del_panel(panels[3]);
       return;
     }
   }
@@ -603,6 +612,7 @@ bool dialog_sure(WINDOW *main_win, PANEL **panels) {
       update_panels();
       doupdate();
       delwin(dialogw);
+      del_panel(panels[3]);
       return true;
       }
     case 110: // n
@@ -610,6 +620,7 @@ bool dialog_sure(WINDOW *main_win, PANEL **panels) {
       update_panels();
       doupdate();
       delwin(dialogw);
+      del_panel(panels[3]);
       return false;
     }
   }
