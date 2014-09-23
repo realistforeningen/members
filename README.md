@@ -7,4 +7,4 @@ Installasjon:
 5. `scp rf@login.ifi.uio.no:Kjellerstyret/medlemsliste/members.db .`
 5. `build/rf-memberlist`
 
-Depends on `libncursesw`, `sqlite3` and `libssh`.
+Depends on `libncurses5-dev`, `libncursesw5-dev`, `sqlite3-dev`, `libssh-dev` and `libicu-dev`.
