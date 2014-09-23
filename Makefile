@@ -35,6 +35,7 @@ EXECNAME   = $(PROJECT)
 
 SOURCEDIR  = ./src
 BUILDDIR   = ./build
+LIBDIR     = ./lib
 
 # prerequisites path (: separated list)
 VPATH = .
@@ -158,10 +159,13 @@ $(BUILDDIR)/$(EXECNAME): $(COMPOBJS)
 # make any file $(BUILDDIR)/stem.o from $(SOURCEDIR)/stem.$(SOURCEEXT)
 # $@ :: name of current target, (left of : , $(BUILDDIR)/%.o)
 # $^ :: name of prerequisites, (right of : , $(SOURCEDIR)/%.$(SOURCEEXT))
-$(BUILDDIR)/%.o: $(SOURCEDIR)/%.$(SOURCEEXT) | $(BUILDDIR)
+$(BUILDDIR)/%.o: $(SOURCEDIR)/%.$(SOURCEEXT) | $(BUILDDIR) $(LIBDIR)
 #	$(CC) $(INCLUDES) $(LIBS) -c $(CFLAGS) -o $@ $^
-	$(CC) -shared src/icu.c `icu-config --ldflags` -o lib/libSqliteIcu.so
+	$(CC) -shared $(SOURCEDIR)/icu.c `icu-config --ldflags` -o $(LIBDIR)/libSqliteIcu.so
 	$(CC) $(INCLUDES) -c $(CFLAGS) -o $@ $^
+
+$(LIBDIR):
+	mkdir -p $(LIBDIR)
 
 $(BUILDDIR):
 	mkdir -p $(BUILDDIR)
