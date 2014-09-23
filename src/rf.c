@@ -388,6 +388,8 @@ void members(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
       if (!search_mode) {
         member_help(main_win, panels);
         prefresh(padw, *curr_scroll, 1, 3, 1, y, x-2);
+      } else {
+        goto def;
       }
       break;
     case KEY_DOWN:
@@ -464,7 +466,7 @@ void members(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
                &visible_members, &delete_rowid, *curr_scroll);
         break;
       }
-    default:
+    def:default:
       if (search_mode && needle_idx < 32) {
         werase(padw);
         needle_buf[needle_idx++] = (char) ch;
