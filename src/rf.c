@@ -11,7 +11,7 @@ int main() {
   read_conf("rf.conf", &price, _, _, file_name);
 
   // Set up ncurses
-  setlocale(LC_ALL, "nb_NO.UTF-8");
+  setlocale(LC_ALL, "");
   initscr();
   raw();
   keypad(stdscr, true);
