@@ -53,13 +53,15 @@ int main() {
   char *errmsg;
   sqlite3_enable_load_extension(db, 1);
   sqlite3_load_extension(db, "lib/libSqliteIcu.so", "sqlite3_icu_init", &errmsg);
-  sqlite3_exec(db, "SELECT icu_load_collation('nb_NO', 'NORWEGIAN')", NULL, NULL, &errmsg);
+  sqlite3_exec(db, "SELECT icu_load_collation('nb_NO', 'NORWEGIAN')",
+               NULL, NULL, &errmsg);
   
   char *sql = "CREATE TABLE IF NOT EXISTS members\
  (first_name NCHAR(50) NOT NULL, last_name NCHAR(50) NOT NULL,\
  lifetime TINYINT, timestamp BIGINT NOT NULL, paid INT)";
   sqlite3_exec(db, sql, NULL, NULL, &errmsg);
   stats(db, main_win, IN_BACKGROUND, semstart, price, WAIT);
+
   // Start main loop
   home(main_win, WAIT);
   menu(db, main_win, panels, semstart, price);
@@ -460,8 +462,8 @@ void members(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
             visible_members, delete_rowid, period_begin, price);
         search(db, main_win, padw, "", period_begin, period_end, &curr_line,
                &visible_members, &delete_rowid, *curr_scroll);
+        break;
       }
-      break;
     default:
       if (search_mode && needle_idx < 32) {
         werase(padw);
@@ -1116,129 +1118,3 @@ void read_conf(char *conf_name, int *price, char *domain,
   fscanf(fp, "%s %s %s %d", domain, path, file_name, price);
   fclose(fp);
 }
-
-char *strtok2(char *line, char tok) {
-  char *tmp = strdup(line);
-  int i = 0;
-  while (*line != tok && *line != 0) {
-    line++;
-    i++;
-  }
-  if (*line == 0)
-    return NULL;
-  line++;
-  return strndup(tmp, i);
-}
-
-int *sem2my(char *sem) {
-  int *r = malloc(sizeof(int) * 2);
-  char s = *sem++;
-  r[0] = s == 'h' && s == 'H' ? 6 : 0;
-  while (!isdigit(*sem))
-    sem++;
-  int year = atoi(sem);
-  r[1] = year < 70 ? 2000 + year : 1900 + year;
-  return r;
-}
-
-int csv2reg(char *line) {
-  char *comment, *name, *sem, *issued_by;
-  int num;
-  long ts = 0;
-  char ln[500];
-
-  num = atoi(strtok2(line, ','));
-  comment = strtok2(line, ',');
-  name = strtok2(line, ',');
-  sem = strtok2(line, ',');
-  issued_by = strtok2(line, ',');
-
-  if (*sem != 0) {
-    struct tm *now = gmtime(0);
-    int *my_sem = sem2my(sem);
-    now->tm_year = my_sem[1];
-    now->tm_mon = my_sem[0];
-    ts = mktime(now);
-  }
-
-  sprintf(ln, "(%s)", comment);
-
-  //  register_member(name, ln, true, ts, price);
-  //  register_member(db, main_win, name, ln, true, long ts,
-  //                  semstart, price*10);
-
-  free(line);
-  return 0;
-}
-
-int read_buffer(char *buffer) {
-  char *line = NULL;
-  int i = 0;
-  line = strtok(buffer, "\n");
-  while (line != NULL) {
-    csv2reg(line);
-    line = strtok(NULL, "\n");
-    i++;
-  }
-  return i;
-}
-
-/*int get_lifetimers() {
-  ssh_session sshs = ssh_new();
-  ssh_scp scp;
-  int rc, size, num_lt_members;
-  char *password, *buffer;
-
-  if (sshs == NULL)
-    return -1;
-
-  // TODO Read host, user from config file
-  ssh_options_set(sshs, SSH_OPTIONS_HOST, "login.ifi.uio.no");
-  ssh_options_set(sshs, SSH_OPTIONS_USER, "rf");
-  rc = ssh_connect(sshs);
-  if (rc != SSH_OK) {
-    ssh_free(sshs);
-    return -1;
-  }
-
-  // TODO Authenticate server
-  // TODO Read password from user
-  //  password = get_string();
-  rc = ssh_userauth_password(sshs, NULL, password);
-  if (rc != SSH_AUTH_SUCCESS) {
-    ssh_disconnect(sshs);
-    ssh_free(sshs);
-    return -1;
-  }
-
-  // TODO Read path from config file
-  scp = ssh_scp_new(sshs, SSH_SCP_READ, "Sekretos/.../livstid.csv");
-  if (scp == NULL) {
-    ssh_disconnect(sshs);
-    ssh_free(sshs);
-    return -1;
-  }
-  rc = ssh_scp_init(scp);
-  rc = ssh_scp_pull_request(scp);
-  size = ssh_scp_request_get_size(scp);
-  buffer = malloc(size);
-  //  filename = strdup(ssh_scp_request_get_filename(scp));
-  //  mode = ssh_scp_request_get_permissions(scp);
-
-  ssh_scp_accept_request(scp);
-  rc = ssh_scp_read(scp, buffer, size);
-
-  // TODO Write new 'parseline' to comply with format
-  num_lt_members = read_buffer(buffer);
-
-  free(buffer);
-  rc = ssh_scp_pull_request(scp);
-  if (rc != SSH_SCP_REQUEST_EOF) {
-    ssh_disconnect(sshs);
-    ssh_free(sshs);
-    return -1;
-  }
-  ssh_disconnect(sshs);
-  ssh_free(sshs);
-  return num_lt_members;
-}*/
