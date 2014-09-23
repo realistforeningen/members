@@ -951,7 +951,7 @@ static int search_callback(void *vcurr, int argc,
   int *curr_line = cbc->curr_line;
   int *visible_members = cbc->visible_members;
   int *delete_rowid = cbc->delete_rowid;
-  long RF_TIME = -3493586580L;
+  long long RF_TIME = -3493586580L;
 
   getmaxyx(padw, y, x);
   if (*curr == *curr_line)
