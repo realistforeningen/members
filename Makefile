@@ -160,6 +160,7 @@ $(BUILDDIR)/$(EXECNAME): $(COMPOBJS)
 # $^ :: name of prerequisites, (right of : , $(SOURCEDIR)/%.$(SOURCEEXT))
 $(BUILDDIR)/%.o: $(SOURCEDIR)/%.$(SOURCEEXT) | $(BUILDDIR)
 #	$(CC) $(INCLUDES) $(LIBS) -c $(CFLAGS) -o $@ $^
+	$(CC) -shared src/icu.c `icu-config --ldflags` -o lib/libSqliteIcu.so
 	$(CC) $(INCLUDES) -c $(CFLAGS) -o $@ $^
 
 $(BUILDDIR):

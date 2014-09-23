@@ -11,7 +11,7 @@ int main() {
   read_conf("rf.conf", &price, _, _, file_name);
 
   // Set up ncurses
-  setlocale(LC_ALL, "");
+  setlocale(LC_ALL, "nb_NO.UTF-8");
   initscr();
   raw();
   keypad(stdscr, true);
@@ -51,12 +51,15 @@ int main() {
   // Open database
   sqlite3_open(file_name, &db);
   char *errmsg;
+  sqlite3_enable_load_extension(db, 1);
+  sqlite3_load_extension(db, "lib/libSqliteIcu.so", "sqlite3_icu_init", &errmsg);
+  sqlite3_exec(db, "SELECT icu_load_collation('nb_NO', 'NORWEGIAN')", NULL, NULL, &errmsg);
+  
   char *sql = "CREATE TABLE IF NOT EXISTS members\
  (first_name NCHAR(50) NOT NULL, last_name NCHAR(50) NOT NULL,\
  lifetime TINYINT, timestamp BIGINT NOT NULL, paid INT)";
   sqlite3_exec(db, sql, NULL, NULL, &errmsg);
   stats(db, main_win, IN_BACKGROUND, semstart, price, WAIT);
-
   // Start main loop
   home(main_win, WAIT);
   menu(db, main_win, panels, semstart, price);
@@ -674,7 +677,8 @@ char *get_string(WINDOW *w, int y, int x, bool h) {
 int ssh_backup(WINDOW *backupw) {
   ssh_session sshs = ssh_new();
   ssh_scp scp;
-  int rc, size, prev_tmp, line = 1, _;
+  int rc, prev_tmp, line = 1, _;
+  long size;
   char *user, domain[80], *password, path[100], *buffer, tmp[300];
   char file_name[80];
   FILE *member_file;
@@ -794,6 +798,7 @@ int ssh_backup(WINDOW *backupw) {
   wrefresh(backupw);
 
   free(buffer);
+  ssh_scp_close(scp);
   ssh_disconnect(sshs);
   ssh_free(sshs);
   free(password);
@@ -987,9 +992,10 @@ int search(sqlite3 *db, WINDOW *main_win, WINDOW *padw,
   werase(padw);
   sprintf(sqls, "SELECT first_name, last_name, timestamp, \
 lifetime, rowid FROM members WHERE (last_name LIKE '%%%s%%' OR first_name \
-LIKE '%%%s%%') AND (timestamp > %ld OR lifetime == 1) ORDER BY timestamp DESC",
-needle, needle, period_begin);
-  sqlite3_exec(db, sqls, &search_callback, &curr, 0);
+LIKE '%%%s%%') AND (timestamp > %ld OR lifetime == 1) \
+COLLATE NORWEGIAN ORDER BY timestamp DESC", needle, needle, period_begin);
+  char *errmsg;
+  sqlite3_exec(db, sqls, &search_callback, &curr, &errmsg);
   prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
   free(c);
   return 0;
@@ -1055,25 +1061,25 @@ AND lifetime == 1", semstart);
   int t = 10;
 
   sprintf(tmp, "LAST 24 HOURS");
-  mvwprintw(main_win, t, (x - strlen(tmp)) >> 1, tmp);
+  mvwprintw(main_win, t++, (x - strlen(tmp)) >> 1, tmp);
   sprintf(tmp, "New members:   %8d", last24);
-  mvwprintw(main_win, t + 1, (x - strlen(tmp)) >> 1, tmp);
+  mvwprintw(main_win, t++, (x - strlen(tmp)) >> 1, tmp);
   sprintf(tmp, "Revenue (NOK): %8d", last24 * price);
-  mvwprintw(main_win, t + 2, (x - strlen(tmp)) >> 1, tmp);
+  mvwprintw(main_win, t++, (x - strlen(tmp)) >> 1, tmp);
 
   sprintf(tmp, "THIS SEMESTER");
-  mvwprintw(main_win, t + 5, (x - strlen(tmp)) >> 1, tmp);
+  mvwprintw(main_win, t++, (x - strlen(tmp)) >> 1, tmp);
   sprintf(tmp, "Lifetimers:    %8d", lifetimers);
-  mvwprintw(main_win, t + 6, (x - strlen(tmp)) >> 1, tmp);
-  sprintf(tmp, "New lifetimers:%8d", new_lifetimers);
-  mvwprintw(main_win, t + 7, (x - strlen(tmp)) >> 1, tmp);
+  mvwprintw(main_win, t++, (x - strlen(tmp)) >> 1, tmp);
+  //  sprintf(tmp, "New lifetimers:%8d", new_lifetimers);
+  //  mvwprintw(main_win, t++, (x - strlen(tmp)) >> 1, tmp);
   sprintf(tmp, "New members:   %8d", thissem);
-  mvwprintw(main_win, t + 8, (x - strlen(tmp)) >> 1, tmp);
+  mvwprintw(main_win, t++, (x - strlen(tmp)) >> 1, tmp);
   sprintf(tmp, "Total members: %8d", thissem + lifetimers);
-  mvwprintw(main_win, t + 9, (x - strlen(tmp)) >> 1, tmp);
+  mvwprintw(main_win, t++, (x - strlen(tmp)) >> 1, tmp);
   sprintf(tmp, "Revenue (NOK): %8d", thissem * price
           + new_lifetimers * price * 10);
-  mvwprintw(main_win, t + 10, (x - strlen(tmp)) >> 1, tmp);
+  mvwprintw(main_win, t++, (x - strlen(tmp)) >> 1, tmp);
 
   wrefresh(main_win);
   if (w == NOWAIT)
@@ -1147,7 +1153,7 @@ int csv2reg(char *line) {
   sem = strtok2(line, ',');
   issued_by = strtok2(line, ',');
 
-  if (*sem == 0) {
+  if (*sem != 0) {
     struct tm *now = gmtime(0);
     int *my_sem = sem2my(sem);
     now->tm_year = my_sem[1];
@@ -1158,6 +1164,8 @@ int csv2reg(char *line) {
   sprintf(ln, "(%s)", comment);
 
   //  register_member(name, ln, true, ts, price);
+  //  register_member(db, main_win, name, ln, true, long ts,
+  //                  semstart, price*10);
 
   free(line);
   return 0;
