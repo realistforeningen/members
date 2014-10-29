@@ -19,16 +19,12 @@
 bool delete(sqlite3 *db, WINDOW *main_win, PANEL **panels, int dl);
 bool dialog_sure(WINDOW *main_win, PANEL **panels);
 char *strstrip(char *str);
-char *strtok2(char *line, char tok);
-int csv2reg(char *line);
-int get_lifetimers();
 int search(sqlite3 *db, WINDOW *main_win, WINDOW *padw,
            char *needle, long period_begin, long period_end,
            int *curr_line, int *visible_members, int *delete_rowid,
            int curr_scroll);
 int ssh_backup(WINDOW *backupw);
 int ssh_fetch_db(WINDOW *main_win);
-int *sem2my(char *sem);
 void backup(WINDOW *main_win, PANEL **panels);
 void debug(char *msg);
 void fetch_db(WINDOW *main_win, PANEL **panels);
