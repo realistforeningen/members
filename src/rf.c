@@ -45,9 +45,6 @@ int main() {
   now->tm_mon = now->tm_mon < 6 ? 0 : 6;
   semstart = mktime(now);
 
-  // Fetch database
-  //  ssh_fetch_db(main_win);
-
   // Open database
   sqlite3_open(file_name, &db);
   char *errmsg;
@@ -384,14 +381,6 @@ void members(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
         mvprintw(1, 27, "%s", needle_buf);
       }
       break;
-    case 104: // H for Help
-      if (!search_mode) {
-        member_help(main_win, panels);
-        prefresh(padw, *curr_scroll, 1, 3, 1, y, x-2);
-      } else {
-        goto def;
-      }
-      break;
     case KEY_DOWN:
       if (curr_line == visible_members - 1) {
         btm = false;
@@ -465,8 +454,14 @@ void members(sqlite3 *db, WINDOW *main_win, WINDOW *padw, PANEL **panels,
         search(db, main_win, padw, "", period_begin, period_end, &curr_line,
                &visible_members, &delete_rowid, *curr_scroll);
         break;
-      }
-    def:default:
+      } // else fall through to default
+    case 104: // H for Help
+      if (!search_mode) {
+        member_help(main_win, panels);
+        prefresh(padw, *curr_scroll, 1, 3, 1, y, x-2);
+        break;
+      } // else fall through to default
+    default:
       if (search_mode && needle_idx < 32) {
         werase(padw);
         needle_buf[needle_idx++] = (char) ch;
@@ -617,31 +612,6 @@ void backup(WINDOW *main_win, PANEL **panels) {
   update_panels();
   doupdate();
   delwin(backupw);
-  return;
-}
-
-void fetch_db(WINDOW *main_win, PANEL **panels) {
-  int x, y, h = 15, wi = 70;
-  WINDOW *fetchw;
-  hide_panel(panels[1]);
-  getch();
-  getmaxyx(main_win, y, x);
-  werase(main_win);
-  box(main_win, 0, 0);
-
-  fetchw = newwin(h + 3, wi + 4, (y - h) >> 1, (x - wi) >> 1);
-  panels[3] = new_panel(fetchw);
-  update_panels();
-  doupdate();
-  box(fetchw, 0, 0);
-
-  ssh_fetch_db(fetchw);
-  getch(); // Wait for any key
-
-  hide_panel(panels[3]);
-  update_panels();
-  doupdate();
-  delwin(fetchw);
   return;
 }
 
@@ -807,141 +777,6 @@ int ssh_backup(WINDOW *backupw) {
   ssh_free(sshs);
   free(password);
   free(user);
-  return 0;
-}
-
-int ssh_fetch_db(WINDOW *main_win) {
-  ssh_session sshs = ssh_new();
-  ssh_scp scp;
-  int rc, size, prev_tmp, line = 1, _;
-  char *user, domain[80], *password, path[100], *buffer, tmp[300];
-  char file_name[80], *pfn;
-  FILE *member_file;
-
-  read_conf("rf.conf", &_, domain, path, file_name);
-
-  pfn = malloc(sizeof(char)*(strlen(file_name) + strlen(path)));
-
-  mvwprintw(main_win, line++, 2, "Fetching database ...");
-  sprintf(tmp, "Enter username for %s:", domain);
-  mvwprintw(main_win, line, 2, tmp);
-  wrefresh(main_win);
-
-  if (sshs == NULL)
-    return -1;
-
-  user = get_string(main_win, line++, 23 + strlen(domain), 0);
-
-  sprintf(tmp, "Connecting to %s@%s ...", user, domain);
-  mvwprintw(main_win, line, 2, tmp);
-  wrefresh(main_win);
-  ssh_options_set(sshs, SSH_OPTIONS_HOST, domain);
-  ssh_options_set(sshs, SSH_OPTIONS_USER, user);
-
-  prev_tmp = strlen(tmp);
-
-  if ((rc = ssh_connect(sshs)) != SSH_OK) {
-    ssh_free(sshs);
-    sprintf(tmp, " Could not connect.");
-    mvwprintw(main_win, line++, 2 + prev_tmp, tmp);
-    sprintf(tmp, "Check internet connection or something.");
-    mvwprintw(main_win, line, 2, tmp);
-    wrefresh(main_win);
-    return -1;
-  }
-
-  sprintf(tmp, " Connected!");
-  mvwprintw(main_win, line++, 2 + prev_tmp, tmp);
-  wrefresh(main_win);
-
-  // TODO Authenticate server
-  sprintf(tmp, "Enter password: ");
-  mvwprintw(main_win, line, 2, tmp);
-  wrefresh(main_win);
-  password = get_string(main_win, line, 18, 1);
-
-  sprintf(tmp, "Authenticating ...");
-  mvwprintw(main_win, ++line, 2, tmp);
-  wrefresh(main_win);
-
-  prev_tmp = strlen(tmp);
-  if ((rc = ssh_userauth_password(sshs, NULL, password))
-      != SSH_AUTH_SUCCESS) {
-    ssh_disconnect(sshs);
-    ssh_free(sshs);
-    sprintf(tmp, " Failed.");
-    mvwprintw(main_win, line++, 2 + prev_tmp, tmp);
-    sprintf(tmp, "Wrong password for user '%s'.", user);
-    mvwprintw(main_win, line, 2, tmp);
-    wrefresh(main_win);
-    return -1;
-  }
-  sprintf(tmp, " OK");
-  mvwprintw(main_win, line++, 2 + prev_tmp, tmp);
-  wrefresh(main_win);
-  free(password);
-  free(user);
-
-  sprintf(tmp, "Opening SCP connection to %s ...", path);
-  mvwprintw(main_win, line, 2, tmp);
-  wrefresh(main_win);
-  sprintf(pfn, "%s%s", path, file_name);
-  if ((scp = ssh_scp_new(sshs, SSH_SCP_READ, pfn)) == NULL) {
-    ssh_disconnect(sshs);
-    ssh_free(sshs);
-    return -1;
-  }
-  rc = ssh_scp_init(scp);
-  rc = ssh_scp_pull_request(scp);
-  //  filename = strdup(ssh_scp_request_get_filename(scp));
-  //  mode = ssh_scp_request_get_permissions(scp);
-  size = ssh_scp_request_get_size(scp);
-  prev_tmp = strlen(tmp);
-  sprintf(tmp, " Done!");
-  mvwprintw(main_win, line++, 2 + prev_tmp, tmp);
-  wrefresh(main_win);
-
-  buffer = malloc(size);
-
-  sprintf(tmp, "Downloading %s (%d) ...", file_name, size);
-  mvwprintw(main_win, line, 2, tmp);
-  wrefresh(main_win);
-  ssh_scp_accept_request(scp);
-  if ((rc = ssh_scp_read(scp, buffer, size)) != SSH_SCP_REQUEST_EOF) {
-    ssh_disconnect(sshs);
-    ssh_free(sshs);
-    return -1;
-  }
-  prev_tmp = strlen(tmp);
-  sprintf(tmp, " Done!");
-  mvwprintw(main_win, line++, 2 + prev_tmp, tmp);
-  wrefresh(main_win);
-
-  sprintf(tmp, "Writing ...");
-  mvwprintw(main_win, line, 2, tmp);
-  wrefresh(main_win);
-  member_file = fopen(file_name, "wb");
-  fwrite(buffer, 1, size, member_file);
-  free(buffer);
-  free(pfn);
-  fclose(member_file);
-
-  if ((rc = ssh_scp_pull_request(scp)) != SSH_SCP_REQUEST_EOF) {
-    ssh_disconnect(sshs);
-    ssh_free(sshs);
-    return -1;
-  }
-
-  prev_tmp = strlen(tmp);
-  sprintf(tmp, " Done!");
-  mvwprintw(main_win, line++, 2 + prev_tmp, tmp);
-  wrefresh(main_win);
-  mvwprintw(main_win, line, 2, "Fetch completed. Press any key.");
-  wrefresh(main_win);
-
-  ssh_disconnect(sshs);
-  ssh_free(sshs);
-  getch();
   return 0;
 }
 
