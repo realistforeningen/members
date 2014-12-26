@@ -49,7 +49,7 @@ int main() {
   sqlite3_open(file_name, &db);
   char *errmsg;
   sqlite3_enable_load_extension(db, 1);
-  sqlite3_load_extension(db, "lib/libSqliteIcu.so", "sqlite3_icu_init", &errmsg);
+  sqlite3_load_extension(db, "libSqliteIcu.so", "sqlite3_icu_init", &errmsg);
   sqlite3_exec(db, "SELECT icu_load_collation('nb_NO', 'NORWEGIAN')",
                NULL, NULL, &errmsg);
   
