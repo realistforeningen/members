@@ -65,6 +65,8 @@ int main() {
 
   sqlite3_close(db);
   delwin(main_win);
+  clear();
+  refresh();
   endwin();
   return 0;
 }
