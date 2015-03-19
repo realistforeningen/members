@@ -822,7 +822,6 @@ int search(sqlite3 *db, WINDOW *main_win, WINDOW *padw,
   int y, x, *c;
   c = malloc(sizeof(int));
   *c = 0;
-  period_begin = 0L;
 
   callback_container curr = {padw, c, curr_line,
                              visible_members, delete_rowid};
