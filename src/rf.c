@@ -828,9 +828,9 @@ int search(sqlite3 *db, WINDOW *main_win, WINDOW *padw,
   getmaxyx(main_win, y, x);
   werase(padw);
   char *sqls = sqlite3_mprintf("SELECT first_name, last_name, timestamp, \
-lifetime, rowid FROM members WHERE (last_name LIKE '%%%q%%' OR first_name \
-LIKE '%%%q%%') AND (timestamp > %ld OR lifetime == 1) \
-COLLATE NORWEGIAN ORDER BY timestamp DESC", needle, needle, period_begin);
+lifetime, rowid FROM members WHERE first_name || ' ' || last_name \
+LIKE '%%%q%%' AND (timestamp > %ld OR lifetime == 1) \
+COLLATE NORWEGIAN ORDER BY timestamp DESC", needle, period_begin);
   char *errmsg;
   sqlite3_exec(db, sqls, &search_callback, &curr, &errmsg);
   sqlite3_free(sqls);
