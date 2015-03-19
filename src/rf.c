@@ -818,7 +818,7 @@ int search(sqlite3 *db, WINDOW *main_win, WINDOW *padw,
            int *curr_line, int *visible_members, int *delete_rowid,
            int curr_scroll) {
   *visible_members = 0;
-  char sqls[500];
+  //  char sqls[800];
   int y, x, *c;
   c = malloc(sizeof(int));
   *c = 0;
@@ -828,12 +828,17 @@ int search(sqlite3 *db, WINDOW *main_win, WINDOW *padw,
 
   getmaxyx(main_win, y, x);
   werase(padw);
-  sprintf(sqls, "SELECT first_name, last_name, timestamp, \
-lifetime, rowid FROM members WHERE (last_name LIKE '%%%s%%' OR first_name \
-LIKE '%%%s%%') AND (timestamp > %ld OR lifetime == 1) \
+/*   sprintf(sqls, "SELECT first_name, last_name, timestamp, \ */
+/* lifetime, rowid FROM members WHERE (last_name LIKE '%%%s%%' OR first_name \ */
+/* LIKE '%%%s%%') AND (timestamp > %ld OR lifetime == 1) \ */
+/* COLLATE NORWEGIAN ORDER BY timestamp DESC", needle, needle, period_begin); */
+  char *sqls = sqlite3_mprintf("SELECT first_name, last_name, timestamp, \
+lifetime, rowid FROM members WHERE (last_name LIKE '%%%q%%' OR first_name \
+LIKE '%%%q%%') AND (timestamp > %ld OR lifetime == 1) \
 COLLATE NORWEGIAN ORDER BY timestamp DESC", needle, needle, period_begin);
   char *errmsg;
   sqlite3_exec(db, sqls, &search_callback, &curr, &errmsg);
+  sqlite3_free(sqls);
   prefresh(padw, curr_scroll, 1, 3, 1, y, x - 2);
   free(c);
   return 0;
