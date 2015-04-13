@@ -49,7 +49,7 @@ int main() {
   sqlite3_open(file_name, &db);
   char *errmsg;
   sqlite3_enable_load_extension(db, 1);
-  sqlite3_load_extension(db, "libSqliteIcu.so", "sqlite3_icu_init", &errmsg);
+  sqlite3_load_extension(db, "./build/libSqliteIcu.so", "sqlite3_icu_init", &errmsg);
   sqlite3_exec(db, "SELECT icu_load_collation('nb_NO', 'NORWEGIAN')",
                NULL, NULL, &errmsg);
   
@@ -792,7 +792,7 @@ static int search_callback(void *vcurr, int argc,
   int *curr_line = cbc->curr_line;
   int *visible_members = cbc->visible_members;
   int *delete_rowid = cbc->delete_rowid;
-  long RF_TIME = 0L;//-3493586580L;
+  long RF_TIME = 0L; //-3493586580L;
 
   getmaxyx(padw, y, x);
   if (*curr == *curr_line)
@@ -809,8 +809,7 @@ static int search_callback(void *vcurr, int argc,
   if ((*curr)++ == *curr_line) {
     wattroff(padw, A_REVERSE | A_BOLD);
     *delete_rowid = atoi(member[4]);
-  }
-  (*visible_members)++;
+  }  (*visible_members)++;
   free(ts_36);
   return 0;
 }
