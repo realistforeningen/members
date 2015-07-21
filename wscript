@@ -7,16 +7,30 @@ VERSION = '0.1'
 top = '.'
 out = 'build'
 
+def options(opt):
+    opt.load('compiler_c gnu_dirs')
+    opt.add_option('--debug', action='store', default=False,
+                   help='Turn on debug mode (True/False) [default: False]')
+
 def configure(ctx):
-    ctx.env.CFLAGS = ['-Wall', '-lpanelw', '-lformw',
-                      '-lncursesw', '-lssh', '-lsqlite3']
-    try:
-        ctx.find_program('clang', var='CC')
-    except:
-        ctx.find_program('gcc', var='CC')
+    from waflib.Tools.compiler_c import c_compiler
+    c_compiler['linux'] = ['clang', 'gcc', 'icc']
+    libs = ['panelw', 'formw', 'ncursesw', 'ssh', 'sqlite3']
+    ctx.env.CFLAGS = ['-Wall', '-Wunused']
+    if ctx.options.debug:
+        print('=== DEBUG MODE ===')
+        ctx.env.CFLAGS.append('-g')
+    else:
+        ctx.env.CFLAGS.append('-Ofast')
+    ctx.load('compiler_c')
+    ctx.check_cc(msg='Testing compiler', fragment="int main() { return 0; }\n", execute=True)
+    for lib in libs:
+        ctx.check_cc(lib=lib, cflags=ctx.env.CFLAGS, uselib_store='L', mandatory=True)
 
 def build(ctx):
-    ctx(rule='${CC} -shared ${SRC} `icu-config --ldflags`'
-        '-fPIC -o ${TGT}', source='src/icu.c', target='libSqliteIcu.so')
-    ctx(rule='${CC} -o ${TGT} ${SRC} ${CFLAGS}',
-        source='src/rf.c', target=APPNAME)
+    ctx.program(source='src/rf.c',
+                target=APPNAME,
+                includes='.',
+                use='L')
+    ctx.shlib(source='src/icu.c',
+              target='SqliteIcu')
